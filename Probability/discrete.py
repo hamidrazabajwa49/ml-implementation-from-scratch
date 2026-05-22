@@ -29,3 +29,38 @@ class BionomialDistribution(Distribution):
             successes=sum(1 for _ in range(self.n) if random.random() < self.p)
             samples.append(successes)
         return samples
+
+
+class BernoulliDistribution(Distribution):
+    def __init__(self, p: float):
+        if not (0 <= p <= 1):
+            raise ValueError("Probability p must be between 0 and 1.")
+        self.p = p
+
+    def mean(self) -> float:
+        return self.p
+
+    def variance(self) -> float:
+        return self.p * (1 - self.p)
+
+    def pmf(self, x: int) -> float:
+        if x == 0:
+            return 1 - self.p
+        elif x == 1:
+            return self.p
+        else:
+            return 0.0
+
+    def cdf(self, x: float) -> float:
+        if x < 0:
+            return 0.0
+        elif x < 1:
+            return 1 - self.p
+        else:
+            return 1.0
+
+    def sample(self, num_samples: int = 1) -> list:
+        samples = []
+        for _ in range(num_samples):
+            samples.append(1 if random.random() < self.p else 0)
+        return samples
