@@ -84,3 +84,40 @@ class BernoulliDistribution(Distribution):
         for _ in range(num_samples):
             samples.append(1 if random.random() < self.p else 0)
         return samples
+
+class PoissonDistribution(Distribution):
+    def __init__(self, lam: float):
+        if lam < 0.0:
+            raise ValueError("Lambda must be non-negative.")
+        self.lam = lam
+
+    def mean(self) -> float:
+        return self.lam
+
+    def variance(self) -> float:
+        return self.lam
+
+    def pmf(self, k: int) -> float:
+        if k < 0:
+            return 0.0
+        return (self.lam ** k) * math.exp(-self.lam) / math.factorial(k)
+
+    def cdf(self, x: float) -> float:
+        if x < 0:
+            return 0.0
+        total = 0.0
+        for k in range(int(x) + 1):
+            total += self.pmf(k)
+        return total
+
+    def sample(self, num_samples: int = 1) -> list:
+        samples = []
+        for _ in range(num_samples):
+            L = math.exp(-self.lam)
+            p = 1.0
+            k = 0
+            while p > L:
+                k += 1
+                p *= random.random()
+            samples.append(k - 1)
+        return samples
