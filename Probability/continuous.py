@@ -16,6 +16,7 @@ class NormalDistribution(Distribution):
             raise ValueError("Standard deviation sigma must be positive.")
         self.mu = mu
         self.sigma = sigma
+        self._params = {'mu': mu, 'sigma': sigma}
 
     def mean(self) -> float:
         return self.mu
