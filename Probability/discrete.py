@@ -19,6 +19,7 @@ class BinomialDistribution(Distribution):
             raise ValueError("Probability p must be between 0 and 1.")
         self.n = n
         self.p = p
+        self._params = {'n': n, 'p': p}
 
     def mean(self) -> float:
         return self.n * self.p
@@ -56,6 +57,7 @@ class BernoulliDistribution(Distribution):
         if not (0 <= p <= 1):
             raise ValueError("Probability p must be between 0 and 1.")
         self.p = p
+        self._params = {'p': p}
 
     def mean(self) -> float:
         return self.p
@@ -90,6 +92,7 @@ class PoissonDistribution(Distribution):
         if lam < 0.0:
             raise ValueError("Lambda must be non-negative.")
         self.lam = lam
+        self._params = {'lam': lam}
 
     def mean(self) -> float:
         return self.lam
