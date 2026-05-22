@@ -7,7 +7,7 @@ import cmath
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
 if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)  # insert at 0 forces Python to look here first
+    sys.path.insert(0, parent_dir)  
 from Vectors.vector import Vector
 
 class Matrix:
@@ -475,7 +475,6 @@ class Matrix:
             else:
                 evecs.append(Vector([0.0] * n))
 
-        # 3. Sort eigenvalues descending, keep eigenvectors matched
         pairs = [(evals[i], i) for i in range(len(evals))]
         pairs.sort(reverse=True, key=lambda x: x[0])
 
