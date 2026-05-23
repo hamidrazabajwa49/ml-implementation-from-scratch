@@ -340,10 +340,6 @@ Papers to be selected from:
 
 Each project folder contains:
 - `implementation.py` — the core code, written to be read, not just run
-- `notes.md` — what I learned, what broke, what made sense only after I built it
-- `notebook.ipynb` — exploratory work and visualizations
-
-The notes files are where the real thinking happened. The code is the output. The notes are the process.
 
 ---
 
@@ -351,9 +347,9 @@ The notes files are where the real thinking happened. The code is the output. Th
 
 The end goal of this challenge is to move into applied AI safety research with a foundation I actually trust. That means generative AI architecture work, LLM behavior analysis, and eventually contributing to evaluation frameworks or alignment research.
 
-This repository is the proof-of-work for that path.
+This repository is the proof of work for that path.
 
 ---
 
-*Started: [Start Date] | Target completion: [End Date]*
+*Started: [15-05-2026] | Target completion: [End Date]*
 *All commits pushed daily as work progresses.*
