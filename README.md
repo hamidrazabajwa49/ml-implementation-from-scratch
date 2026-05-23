@@ -1,6 +1,6 @@
 # 60 Days of AI/ML From Scratch
 
-**Building every component of machine learning from first principles — no ML libraries, just Python and NumPy.**
+**Building every component of machine learning from first principles — no ML libraries, just Python.**
 
 ---
 
