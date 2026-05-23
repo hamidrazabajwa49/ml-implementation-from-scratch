@@ -60,4 +60,23 @@ class DescriptiveStats:
     def iqr(self) -> float:
         return self.percentile(75) - self.percentile(25)
 
+    def skewness(self) -> float:
+        mu = self.mean()
+        sigma = self.std(ddof=0)        
+        if sigma == 0:
+            return 0.0                  
+        n = self.n
+        sum_cubed = sum((x - mu) ** 3 for x in self.data)
+        return (sum_cubed / n) / (sigma ** 3)
+
+    def kurtosis(self) -> float:
+        mu = self.mean()
+        sigma = self.std(ddof=0)
+        if sigma == 0:
+            return 0.0
+        n = self.n
+        sum_fourth = sum((x - mu) ** 4 for x in self.data)
+        return (sum_fourth / n) / (sigma ** 4) - 3.0
+
+
 
