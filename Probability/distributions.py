@@ -1,14 +1,6 @@
 import os
 import sys
 
-# Maintain your path fix so Probability can talk to Matrix/Vectors if needed
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-if parent_dir not in sys.path:
-  sys.path.insert(0, parent_dir)
-
-import math
-
 class Distribution:
   """Abstract base class for probability distributions."""
 
