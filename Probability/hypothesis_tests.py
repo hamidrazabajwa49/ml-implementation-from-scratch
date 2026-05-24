@@ -183,4 +183,70 @@ def chisquare_independence(observed: list) -> dict:
         "conclusion": "Reject H0" if reject else "Fail to reject H0"
     }
 
+def anova_oneway(*groups: list) -> dict:
+
+    k = len(groups)
+    if k < 2:
+        raise ValueError("Need at least two groups for ANOVA.")
+    for i, g in enumerate(groups):
+        if len(g) == 0:
+            raise ValueError(f"Group {i} is empty.")
+
+
+    group_n = [len(g) for g in groups]
+    group_mean = [sum(g) / ni for g, ni in zip(groups, group_n)]
+    N = sum(group_n)
+    grand_mean = sum(sum(g) for g in groups) / N
+
+
+    ssb = sum(ni * (m - grand_mean) ** 2 for ni, m in zip(group_n, group_mean))
+    ssw = 0.0
+    for g, m in zip(groups, group_mean):
+        ssw += sum((x - m) ** 2 for x in g)
+
+
+    dfb = k - 1
+    dfw = N - k
+
+    if dfw == 0:
+        raise ValueError("No within‑group degrees of freedom (all groups have size 1?).")
+
+
+    msb = ssb / dfb
+    msw = ssw / dfw
+    F = msb / msw if msw != 0 else float('inf')
+
+    # p‑value (Paulson–Takeuchi normal approximation for F) 
+    if F == 0:
+        p_value = 1.0
+    elif msw == 0 or F == float('inf'):
+        p_value = 0.0
+    else:
+        # Paulson–Takeuchi transformation
+        a = 2.0 / (9.0 * dfb)
+        b = 2.0 / (9.0 * dfw)
+        F_cbrt = F ** (1.0 / 3.0)
+        z = ( (1.0 - b) * F_cbrt - (1.0 - a) ) / math.sqrt(a + b * F_cbrt ** 2)
+        normal = NormalDistribution(mu=0.0, sigma=1.0)
+        p_value = 1.0 - normal.cdf(z)
+
+    alpha = 0.05
+    reject = p_value < alpha
+
+    return {
+        "F_statistic": F,
+        "p_value": p_value,
+        "df_between": dfb,
+        "df_within": dfw,
+        "SSB": ssb,
+        "SSW": ssw,
+        "MSB": msb,
+        "MSW": msw,
+        "group_means": group_mean,
+        "grand_mean": grand_mean,
+        "alpha": alpha,
+        "reject_H0": reject,
+        "conclusion": "Reject H0" if reject else "Fail to reject H0"
+    }
+
 
