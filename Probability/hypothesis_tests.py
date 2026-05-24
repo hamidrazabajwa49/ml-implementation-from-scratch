@@ -123,4 +123,64 @@ def chisquare_gof(observed: list, expected: list = None) -> dict:
         "conclusion": "Reject H0" if reject else "Fail to reject H0"
     }
 
+def chisquare_independence(observed: list) -> dict:
+
+    if not observed or len(observed) == 0:
+        raise ValueError("Observed table must be non‑empty.")
+    n_rows = len(observed)
+    n_cols = len(observed[0])
+    for i, row in enumerate(observed):
+        if len(row) != n_cols:
+            raise ValueError(f"All rows must have same length. Row {i} has {len(row)} columns.")
+
+    row_totals = [sum(row) for row in observed]
+    col_totals = [0.0] * n_cols
+    for j in range(n_cols):
+        col_totals[j] = sum(observed[i][j] for i in range(n_rows))
+    grand_total = sum(row_totals)
+    if grand_total == 0:
+        raise ValueError("Grand total must be grater than 0.")
+
+    expected_table = []
+    for i in range(n_rows):
+        expected_row = []
+        for j in range(n_cols):
+            e = (row_totals[i] * col_totals[j]) / grand_total
+            if e == 0:
+                raise ValueError(f"Expected count at ({i},{j}) is zero. Check your data.")
+            expected_row.append(e)
+        expected_table.append(expected_row)
+
+    chi2 = 0.0
+    for i in range(n_rows):
+        for j in range(n_cols):
+            o = observed[i][j]
+            e = expected_table[i][j]
+            chi2 += ((o - e) ** 2) / e
+
+
+    df = (n_rows - 1) * (n_cols - 1)
+
+    if df == 0:
+        p_value = 1.0            
+    else:
+        if chi2 < 0:
+            chi2 = 0.0
+        z = math.sqrt(2.0 * chi2) - math.sqrt(2.0 * df - 1.0)
+        normal = NormalDistribution(mu=0.0, sigma=1.0)
+        p_value = 1.0 - normal.cdf(z)    
+
+    alpha = 0.05
+    reject = p_value < alpha
+
+    return {
+        "chi2_statistic": chi2,
+        "p_value": p_value,
+        "df": df,
+        "alpha": alpha,
+        "expected_table": expected_table,
+        "reject_H0": reject,
+        "conclusion": "Reject H0" if reject else "Fail to reject H0"
+    }
+
 
