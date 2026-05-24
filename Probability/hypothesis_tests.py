@@ -73,3 +73,54 @@ def ttest_ind(data1:list,data2:list,alternative: str="two-sided")->dict:
         "alternative":alternative,
         "conclusion":"Reject H0" if reject else "Fail to reject H0"
     }
+
+
+def chisquare_gof(observed: list, expected: list = None) -> dict:
+    if len(observed) == 0:
+        raise ValueError("observed must be non‑empty.")
+
+    if expected is None:
+        total = sum(observed)
+        k = len(observed)
+        if total == 0:
+            raise ValueError("Sum of observed counts must be > 0.")
+        expected = [total / k] * k
+    else:
+        if len(observed) != len(expected):
+            raise ValueError("observed and expected must have the same length.")
+        for i, e in enumerate(expected):
+            if e <= 0:
+                raise ValueError(f"expected counts must be positive. Found {e} at index {i}.")
+
+    chi2 = 0.0
+    k = len(observed)
+    for i in range(k):
+        o = observed[i]
+        e = expected[i]
+        chi2 += ((o - e) ** 2) / e
+
+    df = k - 1
+
+    if df == 0:
+        p_value = 1.0
+    else:
+        if chi2 < 0:
+            chi2 = 0.0 
+        z = math.sqrt(2.0 * chi2) - math.sqrt(2.0 * df - 1.0)
+        normal = NormalDistribution(mu=0.0, sigma=1.0)
+        # chi‑square test is always right‑tailed
+        p_value = 1.0 - normal.cdf(z)
+
+    alpha = 0.05
+    reject = p_value < alpha
+
+    return {
+        "chi2_statistic": chi2,
+        "p_value": p_value,
+        "df": df,
+        "alpha": alpha,
+        "reject_H0": reject,
+        "conclusion": "Reject H0" if reject else "Fail to reject H0"
+    }
+
+
