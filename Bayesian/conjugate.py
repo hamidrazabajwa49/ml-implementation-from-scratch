@@ -74,3 +74,46 @@ class GammaPoisson:
         }
 
 
+class GaussianGaussian:
+
+    def __init__(self, prior_mu: float, prior_sigma: float, obs_sigma: float):
+        if (prior_sigma <= 0.0 or obs_sigma <= 0.0):
+            raise ValueError("Standard deviations must be positive.")
+        self.prior_mu = prior_mu
+        self.prior_var = prior_sigma ** 2
+        self.obs_var = obs_sigma ** 2
+        self.prior = NormalDistribution(prior_mu, prior_sigma)
+
+    def update(self, data: list):
+        n = len(data)
+        if n == 0:
+            raise ValueError("data list must not be empty.")
+        x_bar = sum(data) / n
+
+        prior_prec = 1.0 / self.prior_var
+        obs_prec = n / self.obs_var
+
+        post_prec = prior_prec + obs_prec
+        post_var = 1.0 / post_prec
+        post_mu = (prior_prec * self.prior_mu + obs_prec * x_bar) / post_prec
+
+        self.posterior = NormalDistribution(post_mu, math.sqrt(post_var))
+
+    def posterior_mean(self) -> float:
+        return self.posterior.mean()
+
+    def credible_interval(self, prob: float = 0.95) -> dict:
+        norm = NormalDistribution(0.0, 1.0)
+        z = norm.ppf((1.0 + prob) / 2.0)
+        mu = self.posterior.mean()
+        std = math.sqrt(self.posterior.variance())
+        lower = mu - z * std
+        upper = mu + z * std
+        
+        return {
+            "prob": prob,
+            "lower": lower,
+            "upper": upper,
+            "mean": mu,
+            "std": std,
+        }
