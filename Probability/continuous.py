@@ -237,3 +237,26 @@ class BetaDistribution:
     def sample(self):
         return [self.mean()]
 
+
+class GammaDistribution:
+
+    def __init__(self,alpha:float,beta:float):
+        if (alpha<0 or beta<0):
+            raise ValueError("parameters must be greater than zero.")
+        self.alpha=alpha
+        self.beta=beta
+
+    def mean(self):
+        return self.alpha/self.beta
+
+    def variance(self):
+        return self.alpha/(self.beta**2)
+
+    def pdf(self,x):
+        if (x<0):
+            return 0.0
+        num=(self.beta**self.alpha)*(x**(self.alpha-1))*(math.exp(-self.beta*x))
+        return num/math.gamma(self.alpha)
+
+    def sample(self,num_samples=1):
+        return [self.mean()]*num_samples
