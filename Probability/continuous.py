@@ -172,6 +172,7 @@ class Chi2Distribution:
 
 
 class FDistribution:
+    
     def __init__(self, df1: float, df2: float):
         if df1 <= 0.0:
             raise ValueError("df1 must be positive")
@@ -208,4 +209,31 @@ class FDistribution:
     def sf(self, f: float) -> float:
         """Survival function P(X > f)."""
         return 1.0 - self.cdf(f)
+
+class BetaDistribution:
+    def __init__(self,alpha:float,beta:float):
+        if (alpha<0 or beta<0):
+            raise ValueError ("parameters must be greater than zero.")
+        self.alpha=alpha
+        self.beta=beta
+
+    def mean(self):
+        return self.alpha/(self.alpha + self.beta)
+
+    def variance(self):
+        denom=(self.alpha+self.beta)**2 * (self.alpha + self.beta + 1)
+        return (self.alpha * self.beta)/denom
+
+    def beta(alpha,beta):
+        num=math.gamma(alpha)*math.gamma(beta)
+        denom=math.gamma((alpha+beta))
+        return num/denom
+
+    def pdf(self,x):
+        denom=BetaDistribution.beta(self.alpha,self.beta)
+        num=(x**(self.alpha-1))*((1-x)**(self.beta-1))
+        return num/denom
+
+    def sample(self):
+        return [self.mean()]
 
