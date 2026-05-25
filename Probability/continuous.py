@@ -29,6 +29,12 @@ class NormalDistribution:
         z = (x - self.mu) / self.sigma
         return math.exp(-0.5 * z ** 2) / (self.sigma * math.sqrt(2.0 * math.pi))
 
+    def mean(self):
+        return self.mu
+
+    def variance(self):
+        return self.sigma ** 2
+    
     def sf(self, x: float) -> float:
         """Survival function P(X > x)."""
         return 1.0 - self.cdf(x)
