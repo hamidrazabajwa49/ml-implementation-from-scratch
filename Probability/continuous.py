@@ -217,52 +217,126 @@ class FDistribution:
         return 1.0 - self.cdf(f)
 
 class BetaDistribution:
-    def __init__(self,alpha:float,beta:float):
-        if (alpha<0 or beta<0):
-            raise ValueError ("parameters must be greater than zero.")
-        self.alpha=alpha
-        self.beta=beta
+    def __init__(self, alpha: float, beta: float):
+        if alpha <= 0 or beta <= 0:
+            raise ValueError("parameters must be greater than zero.")
+        self.alpha = alpha
+        self.beta = beta
 
     def mean(self):
-        return self.alpha/(self.alpha + self.beta)
+        return self.alpha / (self.alpha + self.beta)
 
     def variance(self):
-        denom=(self.alpha+self.beta)**2 * (self.alpha + self.beta + 1)
-        return (self.alpha * self.beta)/denom
+        denom = (self.alpha + self.beta) ** 2 * (self.alpha + self.beta + 1)
+        return (self.alpha * self.beta) / denom
 
-    def beta(alpha,beta):
-        num=math.gamma(alpha)*math.gamma(beta)
-        denom=math.gamma((alpha+beta))
-        return num/denom
+    def std(self):
+        return math.sqrt(self.variance())
 
-    def pdf(self,x):
-        denom=BetaDistribution.beta(self.alpha,self.beta)
-        num=(x**(self.alpha-1))*((1-x)**(self.beta-1))
-        return num/denom
+    @staticmethod
+    def beta_func(alpha, beta):
+        num = math.gamma(alpha) * math.gamma(beta)
+        denom = math.gamma(alpha + beta)
+        return num / denom
 
-    def sample(self):
-        return [self.mean()]
+    def pdf(self, x):
+        if x < 0 or x > 1:
+            return 0.0
+        denom = BetaDistribution.beta_func(self.alpha, self.beta)
+        num = (x ** (self.alpha - 1)) * ((1 - x) ** (self.beta - 1))
+        return num / denom
+
+    def _pdf(self, x):
+        """Internal wrapper, same as pdf."""
+        return self.pdf(x)
+
+    def cdf(self, x, n_steps=2000):
+        """Numerical CDF via trapezoidal integration."""
+        if x <= 0.0:
+            return 0.0
+        if x >= 1.0:
+            return 1.0
+        a, b = 0.0, x
+        step = (b - a) / n_steps
+        total = 0.0
+        for i in range(n_steps):
+            x1 = a + i * step
+            x2 = x1 + step
+            total += (self._pdf(x1) + self._pdf(x2)) * step / 2.0
+        return total
+
+    def ppf(self, p, tol=1e-6):
+        """Inverse CDF (percent‑point function) via binary search."""
+        if p <= 0.0:
+            return 0.0
+        if p >= 1.0:
+            return 1.0
+        lo, hi = 0.0, 1.0
+        for _ in range(50):
+            mid = (lo + hi) / 2.0
+            if self.cdf(mid) < p:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2.0
+
+    def sample(self, num_samples=1):
+        return [self.mean()] * num_samples
 
 
 class GammaDistribution:
-
-    def __init__(self,alpha:float,beta:float):
-        if (alpha<0 or beta<0):
+    def __init__(self, alpha: float, beta: float):
+        if alpha <= 0 or beta <= 0:
             raise ValueError("parameters must be greater than zero.")
-        self.alpha=alpha
-        self.beta=beta
+        self.alpha = alpha
+        self.beta = beta
 
     def mean(self):
-        return self.alpha/self.beta
+        return self.alpha / self.beta
 
     def variance(self):
-        return self.alpha/(self.beta**2)
+        return self.alpha / (self.beta ** 2)
 
-    def pdf(self,x):
-        if (x<0):
+    def std(self):
+        return math.sqrt(self.variance())
+
+    def pdf(self, x):
+        if x < 0:
             return 0.0
-        num=(self.beta**self.alpha)*(x**(self.alpha-1))*(math.exp(-self.beta*x))
-        return num/math.gamma(self.alpha)
+        num = (self.beta ** self.alpha) * (x ** (self.alpha - 1)) * math.exp(-self.beta * x)
+        return num / math.gamma(self.alpha)
 
-    def sample(self,num_samples=1):
-        return [self.mean()]*num_samples
+    def cdf(self, x, n_steps=2000):
+        """Numerical CDF from 0 to x using trapezoidal integration."""
+        if x <= 0.0:
+            return 0.0
+        step = x / n_steps
+        total = 0.0
+        for i in range(n_steps):
+            x1 = i * step
+            x2 = x1 + step
+            total += (self.pdf(x1) + self.pdf(x2)) * step / 2.0
+        return total
+
+    def ppf(self, p, tol=1e-6):
+        """Inverse CDF via binary search on [0, upper_bound]."""
+        if p <= 0.0:
+            return 0.0
+        if p >= 1.0:
+            # return a large quantile covering most of the distribution
+            return self.mean() + 10 * self.std() + 100
+        # find an upper bound where CDF >= p
+        upper = self.mean() + 2 * self.std() + 1
+        while self.cdf(upper) < p:
+            upper *= 2
+        lo, hi = 0.0, upper
+        for _ in range(50):
+            mid = (lo + hi) / 2.0
+            if self.cdf(mid) < p:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2.0
+
+    def sample(self, num_samples=1):
+        return [self.mean()] * num_samples
