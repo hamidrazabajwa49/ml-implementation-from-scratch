@@ -286,5 +286,3 @@ No external packages required.
 
 **60-Day ML/AI Foundations Challenge**
 Building every algorithm from scratch — linear algebra → statistics → ML models → deep learning → LLMs.
-
-→ [View full roadmap](#) | [LinkedIn](#) | [Twitter/X](#)
