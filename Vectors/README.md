@@ -1,6 +1,6 @@
 # 01 · Vector Operations Library
 
-> **Part of [ml-implementation-from-scratch](../README.md) · Phase 1 — Math Foundations · Project 1/10**
+> **Part of ml-implementation-from-scratch · Phase 1 — Math Foundations · Project 1/10**
 
 A pure-Python, dependency-free `Vector` class implementing all the linear algebra primitives needed for ML from scratch — dot products, norms (L1 / L2 / L∞), projections, angle computation, and more.
 
@@ -107,4 +107,8 @@ This library feeds directly into the next projects in the series:
 
 ---
 
-*Built as part of a 60-day public challenge — follow along at [github.com/hamidrazabajwa49](https://github.com/hamidrazabajwa49) | [LinkedIn:](linkedin.com/in/hamid-raza-bajwa-564a91377)*
+*Built as part of a 60-day public challenge — follow along at 
+-GitHub: [github.com/hamidrazabajwa49](https://github.com/hamidrazabajwa49)
+- LinkedIn: [linkedin.com/in/hamid-raza-bajwa-564a91377](https://linkedin.com/in/hamid-raza-bajwa-564a91377)
+- Email: hamidrazabajwa49@gmail.com
+*
