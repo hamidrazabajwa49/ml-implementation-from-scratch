@@ -99,6 +99,21 @@ class Matrix:
 
     __rmul__ = __mul__
 
+    def element_wise(self, func):
+        new_rows = []
+        for row in self.rows:
+            new_rows.append(Vector([func(x) for x in row.components]))
+        return Matrix([v.components for v in new_rows])
+
+    def element_wise_with(self, other, func):
+        if self.n_rows != other.n_rows or self.n_cols != other.n_cols:
+            raise ValueError("Matrices must have the same shape.")
+        new_rows = []
+        for r in range(self.n_rows):
+            row = [func(self.rows[r].components[c], other.rows[r].components[c]) for c in range(self.n_cols)]
+            new_rows.append(Vector(row))
+        return Matrix([v.components for v in new_rows])
+
     def transpose(self):
         if self.n_rows == 0:
             return Matrix([])
