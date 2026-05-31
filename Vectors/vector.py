@@ -16,6 +16,14 @@ class Vector:
     def __iter__(self):
         return iter(self.components)
 
+    def element_wise(self, func):
+        return Vector([func(x) for x in self.components])
+
+    def element_wise_with(self, other, func):
+        if len(self) != len(other):
+            raise ValueError("Vectors must have the same length.")
+        return Vector([func(a, b) for a, b in zip(self.components, other.components)])
+
     def __add__(self, other):
         if isinstance(other, (int, float)):
             result=[x + other for x in self]
