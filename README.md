@@ -24,7 +24,7 @@ The linear algebra, probability, and optimization bedrock that every ML algorith
 
 | # | Project | Key concepts |
 |---|---|---|
-| **01** | [Vector operations library](./01-vector/) | Dot product, norms L1/L2/L∞, projections, angles |
+| 01 |Vector operations library | Dot product, norms L1/L2/L∞, projections, angles |
 | 02 | Matrix operations library | Multiply, transpose, determinant, Gaussian elimination |
 | 03 | Eigenvalues & eigenvectors | Power iteration, characteristic polynomial, diagonalization |
 | 04 | SVD module | Full decomposition, low-rank approximation, image compression |
