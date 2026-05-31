@@ -107,8 +107,9 @@ This library feeds directly into the next projects in the series:
 
 ---
 
-*Built as part of a 60-day public challenge — follow along at 
+Built as part of a 60-day public challenge — follow along at:
+
 -GitHub: [github.com/hamidrazabajwa49](https://github.com/hamidrazabajwa49)
 - LinkedIn: [linkedin.com/in/hamid-raza-bajwa-564a91377](https://linkedin.com/in/hamid-raza-bajwa-564a91377)
 - Email: hamidrazabajwa49@gmail.com
-*
+
