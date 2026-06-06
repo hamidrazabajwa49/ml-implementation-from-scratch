@@ -78,6 +78,9 @@ class Matrix:
         return other.__sub__(self)
 
     def __mul__(self, other):
+        if isinstance(other, Vector):
+            return self.matvec(other)               # Matrix × Vector → Vector
+
         if isinstance(other, (int, float)):
             result = [other * row for row in self.rows]
             return Matrix([row.components for row in result])
@@ -97,7 +100,22 @@ class Matrix:
 
         return NotImplemented
 
-    __rmul__ = __mul__
+    def __rmul__(self, other):
+        if isinstance(other, (int, float)):
+            return self.__mul__(other)
+        if isinstance(other, Matrix):
+            return other.__mul__(self)
+        return NotImplemented
+
+    def __truediv__(self, scalar):
+        if isinstance(scalar, (int, float)):
+            if scalar == 0.0:
+                raise ZeroDivisionError("division by zero")
+            new_rows = []
+            for row in self.rows:
+                new_rows.append(Vector([x / scalar for x in row.components]))
+            return Matrix([v.components for v in new_rows])
+        raise TypeError(f"unsupported operand type(s) for /: 'Matrix' and '{type(scalar).__name__}'")
 
     def element_wise(self, func):
         new_rows = []
@@ -106,6 +124,8 @@ class Matrix:
         return Matrix([v.components for v in new_rows])
 
     def element_wise_with(self, other, func):
+        if not isinstance(other, Matrix):
+            raise TypeError(f"expected Matrix, got {type(other).__name__}")
         if self.n_rows != other.n_rows or self.n_cols != other.n_cols:
             raise ValueError("Matrices must have the same shape.")
         new_rows = []
@@ -128,10 +148,14 @@ class Matrix:
 
     @classmethod
     def zeros(cls, n_rows, n_cols):
+        if n_rows < 0 or n_cols < 0:
+            raise ValueError(f"zeros dimensions must be non-negative, got ({n_rows}, {n_cols})")
         return cls([[0.0] * n_cols for _ in range(n_rows)])
 
     @classmethod
     def identity(cls, n):
+        if n <= 0:
+            raise ValueError(f"identity size must be positive, got {n}")
         return cls([[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)])
 
     def row_echelon_form(self):
@@ -226,7 +250,7 @@ class Matrix:
 
     def matvec(self, vec):
         if not isinstance(vec, Vector):
-            raise ValueError("Input must be a Vector instance.")
+            raise TypeError(f"matvec requires a Vector, got {type(vec).__name__}")
         if self.n_cols != len(vec):
             raise ValueError(f"Dimension mismatch: matrix cols {self.n_cols} vs vector len {len(vec)}")
         return Vector([self.rows[i].dot(vec) for i in range(self.n_rows)])
@@ -336,7 +360,11 @@ class Matrix:
                 s = sum(R.rows[i].components[j] * x[j] for j in range(pivot + 1, R.n_cols))
                 x[pivot] = -s / R.rows[i].components[pivot]
 
-            eigenvectors_list.append(Vector(x))
+            v = Vector(x)
+            n_v = v.norm()
+            if n_v > self.tol:
+                v = Vector([c / n_v for c in v.components])
+            eigenvectors_list.append(v)
 
         return eigenvectors_list
 
@@ -353,7 +381,12 @@ class Matrix:
         if any(abs(lam.imag) > self.tol for lam in eigvals if isinstance(lam, complex)):
             raise NotImplementedError("Complex diagonalization not yet supported.")
         
-        eigvecs = [self.eigenvectors(lam)[0] for lam in eigvals]
+        eigvecs = []
+        for lam in eigvals:
+            vlist = self.eigenvectors(lam)
+            if not vlist:
+                raise ValueError("Matrix is not diagonalizable: missing eigenvector for eigenvalue.")
+            eigvecs.append(vlist[0])
         row_matrix = Matrix([v.components for v in eigvecs])
         if abs(row_matrix.determinant()) < self.tol:
             raise ValueError("Matrix is not diagonalizable.")
@@ -387,7 +420,12 @@ class Matrix:
         result["real_eigenvalues"] = real
 
         try:
-            evecs = [self.eigenvectors(ev)[0] for ev in evals]
+            evecs = []
+            for ev in evals:
+                vlist = self.eigenvectors(ev)
+                if not vlist:
+                    return result
+                evecs.append(vlist[0])
         except ValueError:
             return result
 
@@ -476,20 +514,16 @@ class Matrix:
 
         G = self.transpose() * self
 
-        evals = G.eigenvalues()             
-        evecs = []                          
-        used_count = {}                     
-
+        evals = G.eigenvalues()
+        evecs = []
         for lam in evals:
-            vec_list = G.eigenvectors(lam)  
-            if lam not in used_count:
-                used_count[lam] = 0
-            if used_count[lam] < len(vec_list):
-                evecs.append(vec_list[used_count[lam]])
-                used_count[lam] += 1
+            vec_list = G.eigenvectors(lam)
+            if vec_list:
+                evecs.append(vec_list[0])
             else:
                 evecs.append(Vector([0.0] * n))
 
+        # 3. Sort eigenvalues descending, keep eigenvectors matched
         pairs = [(evals[i], i) for i in range(len(evals))]
         pairs.sort(reverse=True, key=lambda x: x[0])
 
