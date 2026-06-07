@@ -6,15 +6,18 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
 if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)  
-from Matrix.matrix import Matrix
+    sys.path.insert(0, parent_dir)
 
+from Matrix.matrix import Matrix
 
 
 class DescriptiveStats:
     def __init__(self, data: list):
         if not data:
             raise ValueError("Data must be non-empty.")
+        for i, x in enumerate(data):
+            if not isinstance(x, (int, float)):
+                raise TypeError(f"All data elements must be numeric. Got {type(x).__name__} at index {i}.")
         self._raw = data
         self.data = sorted(data)
         self.n = len(self.data)
@@ -38,7 +41,6 @@ class DescriptiveStats:
         max_freq = max(counts.values())
         return sorted([k for k, v in counts.items() if v == max_freq])
 
-
     def percentile(self, p: float) -> float:
         if not (0 <= p <= 100):
             raise ValueError("Percentile must be between 0 and 100.")
@@ -46,46 +48,40 @@ class DescriptiveStats:
         i = int(k)
         f = k - i
         if i >= self.n - 1:
-            return self.data[-1]
-        return self.data[i] + f * (self.data[i+1] - self.data[i])
-
+            return float(self.data[-1])
+        return self.data[i] + f * (self.data[i + 1] - self.data[i])
 
     def variance(self, ddof: int = 0) -> float:
         if ddof not in (0, 1):
             raise ValueError("ddof must be 0 or 1.")
+        if ddof == 1 and self.n < 2:
+            raise ValueError("Sample variance requires at least 2 data points.")
         mu = self.mean()
         sse = sum((x - mu) ** 2 for x in self.data)
-        if ddof == 1 and self.n < 2:
-            raise ValueError("Sample variance requires at least 2 points.")
         return sse / (self.n - ddof)
 
     def std(self, ddof: int = 0) -> float:
         return math.sqrt(self.variance(ddof))
 
     def data_range(self) -> float:
-        return self.data[-1] - self.data[0]
+        return float(self.data[-1] - self.data[0])
 
     def iqr(self) -> float:
         return self.percentile(75) - self.percentile(25)
 
-
     def skewness(self) -> float:
         mu = self.mean()
         sigma = self.std(ddof=0)
-        if sigma == 0:
+        if sigma == 0.0:
             return 0.0
-        sum_cubed = sum((x - mu) ** 3 for x in self.data)
-        return (sum_cubed / self.n) / (sigma ** 3)
+        return (sum((x - mu) ** 3 for x in self.data) / self.n) / (sigma ** 3)
 
     def kurtosis(self) -> float:
         mu = self.mean()
         sigma = self.std(ddof=0)
-        if sigma == 0:
+        if sigma == 0.0:
             return 0.0
-        sum_fourth = sum((x - mu) ** 4 for x in self.data)
-        return (sum_fourth / self.n) / (sigma ** 4) - 3.0
-
-
+        return (sum((x - mu) ** 4 for x in self.data) / self.n) / (sigma ** 4) - 3.0
 
     @staticmethod
     def covariance(x: list, y: list, ddof: int = 0) -> float:
@@ -96,6 +92,8 @@ class DescriptiveStats:
         if ddof not in (0, 1):
             raise ValueError("ddof must be 0 or 1.")
         n = len(x)
+        if ddof == 1 and n < 2:
+            raise ValueError("Sample covariance requires at least 2 data points.")
         mx = sum(x) / n
         my = sum(y) / n
         cross = sum((x[i] - mx) * (y[i] - my) for i in range(n))
@@ -113,7 +111,7 @@ class DescriptiveStats:
         cov = sum((x[i] - mx) * (y[i] - my) for i in range(n)) / (n - 1)
         sx = (sum((xi - mx) ** 2 for xi in x) / (n - 1)) ** 0.5
         sy = (sum((yi - my) ** 2 for yi in y) / (n - 1)) ** 0.5
-        if sx == 0 or sy == 0:
+        if sx == 0.0 or sy == 0.0:
             return 0.0
         return cov / (sx * sy)
 
@@ -122,17 +120,10 @@ class DescriptiveStats:
         p = len(dataset)
         if p == 0:
             raise ValueError("Dataset must have at least one variable.")
-        mat = Matrix.zeros(p,p)
+        mat = Matrix.zeros(p, p)
         for i in range(p):
             for j in range(p):
-                val = DescriptiveStats.covariance(dataset[i], dataset[j], ddof=1)
-                mat.rows[i].components[j] = val
-        return mat
-        # If not using built-in Matrix class
-        mat = [[0.0] * p for _ in range(p)]
-        for i in range(p):
-            for j in range(p):
-                mat[i][j] = DescriptiveStats.covariance(dataset[i], dataset[j], ddof=1)
+                mat.rows[i].components[j] = DescriptiveStats.covariance(dataset[i], dataset[j], ddof=1)
         return mat
 
     @staticmethod
@@ -143,16 +134,8 @@ class DescriptiveStats:
         mat = Matrix.zeros(p, p)
         for i in range(p):
             for j in range(p):
-                val = DescriptiveStats.correlation(dataset[i], dataset[j])
-                mat.rows[i].components[j] = val
+                mat.rows[i].components[j] = DescriptiveStats.correlation(dataset[i], dataset[j])
         return mat
-        # If not using built-in Matrix class
-        mat = [[0.0] * p for _ in range(p)]
-        for i in range(p):
-            for j in range(p):
-                mat[i][j] = DescriptiveStats.correlation(dataset[i], dataset[j])
-        return mat
-
 
     def summary(self) -> str:
         lines = [
