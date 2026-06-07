@@ -43,4 +43,3 @@ class Optimizer:
             return Matrix.zeros(x.n_rows, x.n_cols)
         else:
             raise TypeError(f"Unsupported parameter type: {type(x)}")
-          
