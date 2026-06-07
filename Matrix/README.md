@@ -39,13 +39,11 @@ Ensure the folder layout above is intact, then import:
 
 ```python
 import sys
-sys.path.insert(0, "/path/to/Math")
+sys.path.insert(0, "/path/to/")
 
 from Matrix.matrix import Matrix
 from Vectors.vector import Vector
 ```
-
-Or run scripts from inside the `Math/` directory, where the relative import resolves automatically.
 
 ---
 
