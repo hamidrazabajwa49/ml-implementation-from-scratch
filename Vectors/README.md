@@ -1,115 +1,204 @@
-# 01 · Vector Operations Library
+# Vector — Pure Python Vector Library
 
-> **Part of ml-implementation-from-scratch · Phase 1 — Math Foundations · Project 1/10**
+## Overview
 
-A pure-Python, dependency-free `Vector` class implementing all the linear algebra primitives needed for ML from scratch — dot products, norms (L1 / L2 / L∞), projections, angle computation, and more.
+`vector.py` is a pure Python implementation of an n-dimensional mathematical vector, built from scratch as **Project 1** of the *Engineering Redemption Arc* — a structured 60-project ML engineering curriculum covering mathematical foundations through production machine learning systems.
 
----
+The module provides a `Vector` class with full arithmetic operator support, linear algebra operations, and robust input validation. It serves as a reusable primitive for downstream projects in the curriculum (matrix operations, eigenvalue solvers, SVD, optimization, and ML model implementations).
 
-## Why this exists
-
-Every ML algorithm from linear regression to transformers ultimately reduces to vector math. Before reaching for NumPy, this module builds those operations by hand so the intuition is solid before the abstraction is added.
+No third-party libraries are used. The only dependency is Python's standard `math` module.
 
 ---
 
-## What's implemented
+## Project Structure
 
-| Method | Description |
+```
+Vector/
+└── vector.py       # Vector class — all logic lives here
+```
+
+The class is self-contained. There is no separate test file, config, or build step required.
+
+---
+
+## Dependencies
+
+| Requirement | Version |
 |---|---|
-| `__add__` / `__radd__` | Element-wise addition; also supports scalar offset |
-| `__sub__` / `__rsub__` | Element-wise subtraction; also supports scalar |
-| `__mul__` / `__rmul__` | Scalar multiplication |
-| `dot(other)` | Dot product — foundation of projections, cosine similarity, and matrix ops |
-| `norm(order)` | L1 (Manhattan), L2 (Euclidean), L∞ (Chebyshev) norms |
-| `angle(other)` | Angle between two vectors in degrees via the dot-product formula |
-| `normalize()` | Unit vector — divides by L2 norm |
-| `projection_onto(other)` | Orthogonal projection of `self` onto `other` |
-| `element_wise(func)` | Apply any single-argument function element-wise |
-| `element_wise_with(other, func)` | Apply any two-argument function element-wise across two vectors |
+| Python | 3.8+ |
+| `math` (stdlib) | any |
 
-Python dunder support: `__repr__`, `__getitem__`, `__len__`, `__iter__` — so `Vector` behaves like a native sequence.
+No `pip install` required.
 
 ---
 
-## Quick start
+## Installation
+
+Clone or copy `vector.py` into your project directory:
+
+```bash
+cp vector.py /your/project/
+```
+
+Then import it:
+
+```python
+from Vector.vector import Vector
+```
+
+---
+
+## Usage
+
+### Construction
+
+```python
+v = Vector([1, 2, 3])
+u = Vector([4.0, 5.0, 6.0])
+```
+
+Components must be a finite iterable of `int` or `float` values. Any other type raises `TypeError`.
+
+---
+
+### Arithmetic
+
+All standard arithmetic operators are supported between two `Vector` objects of equal dimension, or between a `Vector` and a scalar.
+
+```python
+v + u          # element-wise addition
+v - u          # element-wise subtraction
+v * 3          # scalar multiplication
+3 * v          # scalar multiplication (reversed)
+v / 2.0        # scalar division
+```
+
+Dimension mismatches raise `ValueError`. Type mismatches raise `TypeError`. Division by zero raises `ZeroDivisionError`.
+
+> **Note:** `*` between two Vectors is intentionally unsupported. Use `.dot()` instead.
+
+---
+
+### Dot Product
+
+```python
+result = v.dot(u)    # returns a float
+```
+
+---
+
+### Norms
+
+```python
+v.norm()          # Euclidean (L2) norm — default
+v.norm(order=1)   # Manhattan (L1) norm
+v.norm(order=math.inf)   # Chebyshev (max) norm
+v.norm(order=3)   # arbitrary Lp norm
+```
+
+---
+
+### Normalization
+
+```python
+unit = v.normalize()   # returns a new unit Vector
+```
+
+Raises `ValueError` on a zero vector.
+
+---
+
+### Angle Between Vectors
+
+```python
+degrees = v.angle(u)   # returns angle in degrees
+```
+
+Raises `ValueError` if either vector is zero.
+
+---
+
+### Projection
+
+```python
+proj = v.projection_onto(u)   # projection of v onto u, returns a Vector
+```
+
+Raises `ValueError` if `u` is the zero vector.
+
+---
+
+### Utility Methods
+
+```python
+len(v)            # number of components
+v[0]              # index access
+v[0] = 9.0        # index assignment (validates type)
+list(v)           # iterate over components
+v == u            # equality check (component-wise)
+repr(v)           # Vector([1, 2, 3])
+```
+
+#### Element-wise transformations
+
+```python
+v.element_wise(lambda x: x ** 2)          # apply a unary function to each component
+v.element_wise_with(u, lambda a, b: a*b)  # apply a binary function component-wise
+```
+
+---
+
+## Example Session
 
 ```python
 import math
 from vector import Vector
 
-a = Vector([3, 4, 0])
-b = Vector([1, 0, 0])
+a = Vector([3, 4])
+b = Vector([1, 0])
 
-print(a.norm())               # 5.0  (L2)
-print(a.norm(order=1))        # 7    (L1)
-print(a.norm(order=math.inf)) # 4    (L∞)
-
-print(a.dot(b))               # 3
-print(a.angle(b))             # 36.87°
-print(a.normalize())          # Vector([0.6, 0.8, 0.0])
-print(a.projection_onto(b))   # Vector([3, 0, 0])
-
-# Arithmetic
-print(a + b)                  # Vector([4, 4, 0])
-print(a * 2)                  # Vector([6, 8, 0])
-print(3 * a)                  # Vector([9, 12, 0])
-print(a - 1)                  # Vector([2, 3, -1])
+print(a.norm())            # 5.0
+print(a.normalize())       # Vector([0.6, 0.8])
+print(a.dot(b))            # 3
+print(a.angle(b))          # 53.13010235415598
+print(a.projection_onto(b))  # Vector([3.0, 0.0])
+print(a + b)               # Vector([4, 4])
+print(2 * a)               # Vector([6, 8])
 ```
 
 ---
 
-## Math behind the operations
+## Error Reference
 
-**Dot product**
-
-$$\mathbf{a} \cdot \mathbf{b} = \sum_{i} a_i b_i$$
-
-**Norms**
-
-$$\|\mathbf{v}\|_1 = \sum|v_i|, \quad \|\mathbf{v}\|_2 = \sqrt{\sum v_i^2}, \quad \|\mathbf{v}\|_\infty = \max|v_i|$$
-
-**Angle**
-
-$$\theta = \arccos\!\left(\frac{\mathbf{a}\cdot\mathbf{b}}{\|\mathbf{a}\|\,\|\mathbf{b}\|}\right)$$
-
-**Projection of a onto b**
-
-$$\text{proj}_{\mathbf{b}}\,\mathbf{a} = \frac{\mathbf{a}\cdot\mathbf{b}}{\|\mathbf{b}\|^2}\,\mathbf{b}$$
+| Situation | Exception |
+|---|---|
+| Non-numeric component in constructor | `TypeError` |
+| Non-iterable passed to constructor | `TypeError` |
+| Dimension mismatch in binary ops | `ValueError` |
+| `*` used between two Vectors | `TypeError` (with hint to use `.dot()`) |
+| Scalar division by zero | `ZeroDivisionError` |
+| Normalizing a zero vector | `ValueError` |
+| Angle with a zero vector | `ValueError` |
+| Projection onto zero vector | `ValueError` |
+| Invalid norm order | `ValueError` |
 
 ---
 
-## Requirements
+## Design Notes
 
-- Python 3.8+
-- Standard library only (`math`) — no NumPy, no external packages
-
----
-
-## What comes next
-
-This library feeds directly into the next projects in the series:
-
-- **[02 · Matrix Operations](../02-matrix/)** — builds on `dot` to implement matrix multiply, transpose, determinant, and Gaussian elimination
-- **[03 · Eigenvalues & Eigenvectors](../03-eigenvalues/)** — power iteration uses `normalize()` from this module
-- **[04 · SVD](../04-svd/)** — requires all of the above
+- **Immutability of results:** All operations return new `Vector` instances; the original is never modified (except `__setitem__`).
+- **No NumPy:** Implementation is intentionally from scratch to build foundational understanding before transitioning to library-based workflows in later curriculum phases.
+- **Operator clarity:** Multiplication between two `Vector` objects is blocked with a descriptive error to prevent silent dot-product misuse — a common source of bugs in naive implementations.
+- **Norm generality:** The `norm()` method handles L1, L2, L∞, and arbitrary Lp norms in a single unified interface.
 
 ---
 
-## Series context
+## Roadmap Context
 
-| Phase | Projects | Status |
-|---|---|---|
-| **P1 Math Foundations** | 01–10 | 🟢 In progress |
-| P2 ML Algorithms | 11–25 | ⬜ Upcoming |
-| P3 Real-World Projects | 26–40 | ⬜ Upcoming |
-| P4 Advanced + Deployed | 41–52 | ⬜ Upcoming |
-| P5 Paper Implementations | 53–60 | ⬜ Upcoming |
+This module is **Project 1 of 60** in the Engineering Redemption Arc curriculum. It underpins:
 
----
+- **Project 2** — Matrix operations (dot products, projections reused directly)
+- **Projects 3–4** — Eigenvalues, SVD (Vector as the base data structure)
+- **Projects 11+** — ML model implementations (gradient vectors, weight updates)
 
-Built as part of a 60-day public challenge — follow along at:
-
--GitHub: [github.com/hamidrazabajwa49](https://github.com/hamidrazabajwa49)
-- LinkedIn: [linkedin.com/in/hamid-raza-bajwa-564a91377](https://linkedin.com/in/hamid-raza-bajwa-564a91377)
-- Email: hamidrazabajwa49@gmail.com
-
+The implementation intentionally avoids NumPy to enforce understanding of the underlying mechanics before those abstractions are introduced in later phases.
