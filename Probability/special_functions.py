@@ -2,11 +2,6 @@ import math
 
 
 def betainc(a: float, b: float, x: float) -> float:
-    """
-    Regularized incomplete beta function I_x(a, b).
-
-    Returns the probability P(X <= x) where X ~ Beta(a, b).
-    """
     if a <= 0.0 or b <= 0.0:
         raise ValueError("a and b must be positive")
     if x < 0.0 or x > 1.0:
@@ -62,11 +57,6 @@ def betainc(a: float, b: float, x: float) -> float:
 
 
 def gammainc(a: float, x: float) -> float:
-    """
-    Regularized lower incomplete gamma function P(a, x).
-
-    Returns the probability P(X <= x) where X ~ Gamma(a, 1).
-    """
     if a <= 0.0:
         raise ValueError("a must be positive")
     if x < 0.0:
