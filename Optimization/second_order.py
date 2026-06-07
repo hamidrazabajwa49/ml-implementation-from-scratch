@@ -1,10 +1,20 @@
 import math
-from base import Optimizer
-from utils import numerical_hessian, _vec_add, _vec_sub, _vec_scale, _vec_dot, _mat_vec
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from Optimization.base import Optimizer
+from Optimization.utils import numerical_hessian, _vec_add, _vec_sub, _vec_scale, _vec_dot, _mat_vec
 
 
 def _solve_linear(A: list, b: list) -> list:
     n = len(b)
+    if n == 0:
+        return []
     M = [A[i][:] + [b[i]] for i in range(n)]
 
     for col in range(n):
@@ -14,7 +24,7 @@ def _solve_linear(A: list, b: list) -> list:
                 pivot = row
                 break
         if pivot is None:
-            raise ValueError("Singular system")
+            raise ValueError("Singular system: matrix is not invertible")
         M[col], M[pivot] = M[pivot], M[col]
         scale = M[col][col]
         M[col] = [v / scale for v in M[col]]
@@ -53,6 +63,8 @@ def _mat_add(A: list, B: list) -> list:
 class NewtonMethod(Optimizer):
     def __init__(self, f, lr: float = 1.0, hessian_h: float = 1e-4):
         super().__init__(lr)
+        if hessian_h <= 0.0:
+            raise ValueError(f"hessian_h must be positive, got {hessian_h}")
         self.f = f
         self.hessian_h = hessian_h
 
@@ -61,20 +73,26 @@ class NewtonMethod(Optimizer):
         try:
             direction = _solve_linear(H, grads)
         except ValueError:
-            direction = grads
-        return [p - self.lr * d for p, d in zip(params, direction)]
+            direction = grads[:]
+        new_params = [p - self.lr * d for p, d in zip(params, direction)]
+        self.iterations += 1
+        return new_params
 
     def step_with_hessian(self, params: list, grads: list, hessian: list) -> list:
         try:
             direction = _solve_linear(hessian, grads)
         except ValueError:
-            direction = grads
-        return [p - self.lr * d for p, d in zip(params, direction)]
+            direction = grads[:]
+        new_params = [p - self.lr * d for p, d in zip(params, direction)]
+        self.iterations += 1
+        return new_params
 
 
 class BFGS(Optimizer):
     def __init__(self, lr: float = 1.0, eps: float = 1e-10):
         super().__init__(lr)
+        if eps <= 0.0:
+            raise ValueError(f"eps must be positive, got {eps}")
         self.eps = eps
         self._H_inv = None
         self._x_prev = None
@@ -86,16 +104,26 @@ class BFGS(Optimizer):
         if self._H_inv is None:
             self._H_inv = _identity(n)
 
+        # Compute search direction using current H_inv
         direction = _vec_scale(_mat_vec(self._H_inv, grads), -1.0)
 
-        step_size = self.lr
-        x_new = _vec_add(params, _vec_scale(direction, step_size))
+        # Take step
+        x_new = _vec_add(params, _vec_scale(direction, self.lr))
 
+        # Clamp step size to avoid divergence
+        step = _vec_sub(x_new, params)
+        step_norm = sum(s ** 2 for s in step) ** 0.5
+        max_step = 10.0
+        if step_norm > max_step:
+            x_new = _vec_add(params, _vec_scale(step, max_step / step_norm))
+
+        # Update H_inv using curvature from PREVIOUS step
+        # (s = x_current - x_prev, y = g_current - g_prev)
         if self._x_prev is not None:
             s = _vec_sub(params, self._x_prev)
             y = _vec_sub(grads, self._g_prev)
-
             sy = _vec_dot(s, y)
+
             if abs(sy) > self.eps:
                 Hy = _mat_vec(self._H_inv, y)
                 yHy = _vec_dot(y, Hy)
@@ -115,14 +143,7 @@ class BFGS(Optimizer):
 
         self._x_prev = params[:]
         self._g_prev = grads[:]
-
-        step = _vec_sub(x_new, params)
-        step_norm = sum(s**2 for s in step)**0.5
-        max_step = 10.0
-        if step_norm > max_step:
-            scale = max_step / step_norm
-            x_new = _vec_add(params, [s * scale for s in step])
-
+        self.iterations += 1
         return x_new
 
     def reset(self):
@@ -130,5 +151,3 @@ class BFGS(Optimizer):
         self._H_inv = None
         self._x_prev = None
         self._g_prev = None
-
-  
