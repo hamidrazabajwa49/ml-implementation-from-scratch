@@ -3,6 +3,8 @@ from typing import List
 
 
 def numerical_gradient(f, x: list, h: float = 1e-5) -> list:
+    if h <= 0.0:
+        raise ValueError(f"h must be positive, got {h}")
     grad = []
     for i in range(len(x)):
         x_fwd = x[:]
@@ -14,6 +16,8 @@ def numerical_gradient(f, x: list, h: float = 1e-5) -> list:
 
 
 def numerical_hessian(f, x: list, h: float = 1e-4) -> list:
+    if h <= 0.0:
+        raise ValueError(f"h must be positive, got {h}")
     n = len(x)
     H = [[0.0] * n for _ in range(n)]
     for i in range(n):
@@ -30,25 +34,29 @@ def numerical_hessian(f, x: list, h: float = 1e-4) -> list:
 def _vec_add(a, b):
     return [ai + bi for ai, bi in zip(a, b)]
 
-def _vec_sub(a, b):    
+def _vec_sub(a, b):
     return [ai - bi for ai, bi in zip(a, b)]
 
-def _vec_scale(a, s):  
+def _vec_scale(a, s):
     return [ai * s for ai in a]
 
-def _vec_dot(a, b):    
+def _vec_dot(a, b):
     return sum(ai * bi for ai, bi in zip(a, b))
 
-def _vec_norm(a):      
+def _vec_norm(a):
     return math.sqrt(sum(ai * ai for ai in a))
 
-def _mat_vec(M, v):    
-    return [sum(M[i][j]*v[j] for j in range(len(v))) for i in range(len(M))]
+def _mat_vec(M, v):
+    return [sum(M[i][j] * v[j] for j in range(len(v))) for i in range(len(M))]
 
 
 class ConvergenceTracker:
 
     def __init__(self, tol: float = 1e-6, patience: int = 10):
+        if tol <= 0.0:
+            raise ValueError(f"tol must be positive, got {tol}")
+        if patience < 1:
+            raise ValueError(f"patience must be at least 1, got {patience}")
         self.tol = tol
         self.patience = patience
         self.history = []
@@ -81,7 +89,7 @@ class ConvergenceTracker:
         losses = self.history
         lo, hi = min(losses), max(losses)
         span = hi - lo if hi != lo else 1.0
-        print(f"\n  Loss curve  (iter 0 → {len(losses)-1})")
+        print(f"\n  Loss curve  (iter 0 → {len(losses) - 1})")
         print(f"  max: {hi:.6f}")
         for row in range(height):
             threshold = hi - (row / (height - 1)) * span
@@ -93,11 +101,26 @@ class ConvergenceTracker:
         print(f"  {'─' * len(losses)}")
 
 
-def optimize(f,grad_f,x0: list,optimizer,max_iter: int = 1000,tol: float = 1e-6,verbose: bool = False,) -> dict:
+def optimize(
+    f,
+    grad_f,
+    x0: list,
+    optimizer,
+    max_iter: int = 1000,
+    tol: float = 1e-6,
+    verbose: bool = False,
+) -> dict:
+    if max_iter < 1:
+        raise ValueError(f"max_iter must be at least 1, got {max_iter}")
+    if tol <= 0.0:
+        raise ValueError(f"tol must be positive, got {tol}")
+
     x = x0[:]
     tracker = ConvergenceTracker(tol=tol, patience=20)
+    iterations = 0
 
     for i in range(max_iter):
+        iterations = i + 1
         loss = f(x)
         grads = grad_f(x)
         tracker.update(loss)
@@ -112,12 +135,16 @@ def optimize(f,grad_f,x0: list,optimizer,max_iter: int = 1000,tol: float = 1e-6,
                 print(f"  converged at iter {i}  (grad norm < {tol})")
             break
 
-        optimizer.step(x, grads)
+        # step() may mutate x in-place (first-order) or return new x (second-order)
+        result = optimizer.step(x, grads)
+        if result is not None:
+            x = result
 
+    final_grad_norm = _vec_norm(grad_f(x))
     return {
-        "x":          x,
-        "loss":       f(x),
-        "iterations": i + 1,
-        "history":    optimizer.history[:],
-        "converged":  _vec_norm(grad_f(x)) < tol * 100,
+        "x": x,
+        "loss": f(x),
+        "iterations": iterations,
+        "history": optimizer.history[:],
+        "converged": final_grad_norm < tol,
     }
