@@ -3,14 +3,14 @@ import random
 import os
 import sys
 
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from Probability.distributions import Distribution
-from special_functions import betainc, gammainc
+from Probability.special_functions import betainc, gammainc
+
 
 class NormalDistribution:
     def __init__(self, mu: float = 0.0, sigma: float = 1.0):
@@ -19,35 +19,28 @@ class NormalDistribution:
         self.mu = mu
         self.sigma = sigma
 
-    def cdf(self, x: float) -> float:
-        """Cumulative distribution function P(X <= x)."""
-        z = (x - self.mu) / self.sigma
-        return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
-
     def pdf(self, x: float) -> float:
-        """Probability density function."""
         z = (x - self.mu) / self.sigma
         return math.exp(-0.5 * z ** 2) / (self.sigma * math.sqrt(2.0 * math.pi))
 
-    def mean(self):
-        return self.mu
+    def cdf(self, x: float) -> float:
+        z = (x - self.mu) / self.sigma
+        return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
 
-    def variance(self):
-        return self.sigma ** 2
-    
     def sf(self, x: float) -> float:
-        """Survival function P(X > x)."""
         return 1.0 - self.cdf(x)
 
+    def mean(self) -> float:
+        return self.mu
+
+    def variance(self) -> float:
+        return self.sigma ** 2
+
+    def std(self) -> float:
+        return self.sigma
+
     def ppf(self, p: float) -> float:
-        """
-        Percent-point function (quantile function / inverse CDF).
-
-        Returns the value x such that P(X <= x) = p.
-
-        Uses the Beasley-Springer-Moro rational approximation.
-        """
-        if p <= 0.0 or p >= 1.0:
+        if not (0.0 < p < 1.0):
             raise ValueError("p must be strictly between 0 and 1")
 
         a = [
@@ -97,32 +90,21 @@ class TDistribution:
         self.df = df
 
     def pdf(self, t: float) -> float:
-        """Probability density function."""
         coeff = math.exp(
             math.lgamma((self.df + 1.0) / 2.0) - math.lgamma(self.df / 2.0)
-        )
-        coeff /= math.sqrt(self.df * math.pi)
+        ) / math.sqrt(self.df * math.pi)
         return coeff * (1.0 + t ** 2 / self.df) ** (-(self.df + 1.0) / 2.0)
 
     def cdf(self, t: float) -> float:
-        """Cumulative distribution function P(X <= t)."""
         x = self.df / (self.df + t ** 2)
         p = 0.5 * betainc(self.df / 2.0, 0.5, x)
-        if t > 0:
-            return 1.0 - p
-        return p
+        return p if t <= 0 else 1.0 - p
 
     def sf(self, t: float) -> float:
-        """Survival function P(X > t)."""
         return 1.0 - self.cdf(t)
 
     def ppf(self, p: float) -> float:
-        """
-        Percent-point function (quantile function / inverse CDF).
-
-        Returns the value t such that P(X <= t) = p.
-        """
-        if p <= 0.0 or p >= 1.0:
+        if not (0.0 < p < 1.0):
             raise ValueError("p must be strictly between 0 and 1")
         lo, hi = -1.0, 1.0
         while self.cdf(lo) >= p:
@@ -138,9 +120,6 @@ class TDistribution:
         return (lo + hi) / 2.0
 
     def p_value(self, t: float, alternative: str) -> float:
-        """
-        Compute the p-value for a given t-statistic.
-        """
         if alternative == "two-sided":
             return 2.0 * min(self.cdf(t), self.sf(t))
         if alternative == "greater":
@@ -157,7 +136,6 @@ class Chi2Distribution:
         self.df = df
 
     def pdf(self, x: float) -> float:
-        """Probability density function."""
         if x <= 0.0:
             return 0.0
         k = self.df / 2.0
@@ -166,19 +144,15 @@ class Chi2Distribution:
         )
 
     def cdf(self, x: float) -> float:
-        """Cumulative distribution function P(X <= x)."""
         if x <= 0.0:
             return 0.0
         return gammainc(self.df / 2.0, x / 2.0)
 
     def sf(self, x: float) -> float:
-        """Survival function P(X > x)."""
         return 1.0 - self.cdf(x)
 
 
-
 class FDistribution:
-    
     def __init__(self, df1: float, df2: float):
         if df1 <= 0.0:
             raise ValueError("df1 must be positive")
@@ -188,7 +162,6 @@ class FDistribution:
         self.df2 = df2
 
     def pdf(self, f: float) -> float:
-        """Probability density function."""
         if f <= 0.0:
             return 0.0
         d1, d2 = self.df1, self.df2
@@ -206,67 +179,64 @@ class FDistribution:
         return math.exp(log_num - log_den)
 
     def cdf(self, f: float) -> float:
-        """Cumulative distribution function P(X <= f)."""
         if f <= 0.0:
             return 0.0
         x = self.df1 * f / (self.df1 * f + self.df2)
         return betainc(self.df1 / 2.0, self.df2 / 2.0, x)
 
     def sf(self, f: float) -> float:
-        """Survival function P(X > f)."""
         return 1.0 - self.cdf(f)
+
 
 class BetaDistribution:
     def __init__(self, alpha: float, beta: float):
-        if alpha <= 0 or beta <= 0:
-            raise ValueError("parameters must be greater than zero.")
+        if alpha <= 0.0 or beta <= 0.0:
+            raise ValueError("alpha and beta must be positive.")
         self.alpha = alpha
         self.beta = beta
 
-    def mean(self):
+    def mean(self) -> float:
         return self.alpha / (self.alpha + self.beta)
 
-    def variance(self):
-        denom = (self.alpha + self.beta) ** 2 * (self.alpha + self.beta + 1)
-        return (self.alpha * self.beta) / denom
+    def variance(self) -> float:
+        s = self.alpha + self.beta
+        return (self.alpha * self.beta) / (s ** 2 * (s + 1.0))
 
-    def std(self):
+    def std(self) -> float:
         return math.sqrt(self.variance())
 
     @staticmethod
-    def beta_func(alpha, beta):
-        num = math.gamma(alpha) * math.gamma(beta)
-        denom = math.gamma(alpha + beta)
-        return num / denom
+    def beta_func(alpha: float, beta: float) -> float:
+        return math.exp(math.lgamma(alpha) + math.lgamma(beta) - math.lgamma(alpha + beta))
 
-    def pdf(self, x):
-        if x < 0 or x > 1:
+    def pdf(self, x: float) -> float:
+        if x < 0.0 or x > 1.0:
             return 0.0
-        denom = BetaDistribution.beta_func(self.alpha, self.beta)
-        num = (x ** (self.alpha - 1)) * ((1 - x) ** (self.beta - 1))
-        return num / denom
+        if x == 0.0:
+            return 0.0 if self.alpha >= 1.0 else math.inf
+        if x == 1.0:
+            return 0.0 if self.beta >= 1.0 else math.inf
+        log_pdf = (
+            (self.alpha - 1.0) * math.log(x)
+            + (self.beta - 1.0) * math.log(1.0 - x)
+            - (math.lgamma(self.alpha) + math.lgamma(self.beta) - math.lgamma(self.alpha + self.beta))
+        )
+        return math.exp(log_pdf)
 
-    def _pdf(self, x):
-        """Internal wrapper, same as pdf."""
-        return self.pdf(x)
-
-    def cdf(self, x, n_steps=2000):
-        """Numerical CDF via trapezoidal integration."""
+    def cdf(self, x: float, n_steps: int = 2000) -> float:
         if x <= 0.0:
             return 0.0
         if x >= 1.0:
             return 1.0
-        a, b = 0.0, x
-        step = (b - a) / n_steps
+        step = x / n_steps
         total = 0.0
         for i in range(n_steps):
-            x1 = a + i * step
+            x1 = i * step
             x2 = x1 + step
-            total += (self._pdf(x1) + self._pdf(x2)) * step / 2.0
-        return total
+            total += (self.pdf(x1) + self.pdf(x2)) * step / 2.0
+        return min(total, 1.0)
 
-    def ppf(self, p, tol=1e-6):
-        """Inverse CDF (percent‑point function) via binary search."""
+    def ppf(self, p: float, tol: float = 1e-6) -> float:
         if p <= 0.0:
             return 0.0
         if p >= 1.0:
@@ -280,34 +250,51 @@ class BetaDistribution:
                 hi = mid
         return (lo + hi) / 2.0
 
-    def sample(self, num_samples=1):
-        return [self.mean()] * num_samples
+    def sample(self, num_samples: int = 1) -> list:
+        if num_samples < 1:
+            raise ValueError("num_samples must be at least 1.")
+        results = []
+        for _ in range(num_samples):
+            # Johnk's method: valid for all alpha, beta > 0
+            while True:
+                u = random.random() ** (1.0 / self.alpha)
+                v = random.random() ** (1.0 / self.beta)
+                if u + v <= 1.0:
+                    results.append(u / (u + v))
+                    break
+        return results
 
 
 class GammaDistribution:
     def __init__(self, alpha: float, beta: float):
-        if alpha <= 0 or beta <= 0:
-            raise ValueError("parameters must be greater than zero.")
+        if alpha <= 0.0 or beta <= 0.0:
+            raise ValueError("alpha and beta must be positive.")
         self.alpha = alpha
         self.beta = beta
 
-    def mean(self):
+    def mean(self) -> float:
         return self.alpha / self.beta
 
-    def variance(self):
+    def variance(self) -> float:
         return self.alpha / (self.beta ** 2)
 
-    def std(self):
+    def std(self) -> float:
         return math.sqrt(self.variance())
 
-    def pdf(self, x):
-        if x < 0:
+    def pdf(self, x: float) -> float:
+        if x < 0.0:
             return 0.0
-        num = (self.beta ** self.alpha) * (x ** (self.alpha - 1)) * math.exp(-self.beta * x)
-        return num / math.gamma(self.alpha)
+        if x == 0.0:
+            return 0.0 if self.alpha >= 1.0 else math.inf
+        log_pdf = (
+            self.alpha * math.log(self.beta)
+            + (self.alpha - 1.0) * math.log(x)
+            - self.beta * x
+            - math.lgamma(self.alpha)
+        )
+        return math.exp(log_pdf)
 
-    def cdf(self, x, n_steps=2000):
-        """Numerical CDF from 0 to x using trapezoidal integration."""
+    def cdf(self, x: float, n_steps: int = 2000) -> float:
         if x <= 0.0:
             return 0.0
         step = x / n_steps
@@ -316,19 +303,16 @@ class GammaDistribution:
             x1 = i * step
             x2 = x1 + step
             total += (self.pdf(x1) + self.pdf(x2)) * step / 2.0
-        return total
+        return min(total, 1.0)
 
-    def ppf(self, p, tol=1e-6):
-        """Inverse CDF via binary search on [0, upper_bound]."""
+    def ppf(self, p: float, tol: float = 1e-6) -> float:
         if p <= 0.0:
             return 0.0
         if p >= 1.0:
-            # return a large quantile covering most of the distribution
-            return self.mean() + 10 * self.std() + 100
-        # find an upper bound where CDF >= p
-        upper = self.mean() + 2 * self.std() + 1
+            return float('inf')
+        upper = self.mean() + 2.0 * self.std() + 1.0
         while self.cdf(upper) < p:
-            upper *= 2
+            upper *= 2.0
         lo, hi = 0.0, upper
         for _ in range(50):
             mid = (lo + hi) / 2.0
@@ -338,5 +322,31 @@ class GammaDistribution:
                 hi = mid
         return (lo + hi) / 2.0
 
-    def sample(self, num_samples=1):
-        return [self.mean()] * num_samples
+    def sample(self, num_samples: int = 1) -> list:
+        if num_samples < 1:
+            raise ValueError("num_samples must be at least 1.")
+        # Marsaglia Tsang method 
+        results = []
+        alpha = self.alpha
+        boost = alpha < 1.0
+        if boost:
+            alpha = alpha + 1.0
+        d = alpha - 1.0 / 3.0
+        c = 1.0 / math.sqrt(9.0 * d)
+        for _ in range(num_samples):
+            while True:
+                x = random.gauss(0.0, 1.0)
+                v = (1.0 + c * x) ** 3
+                if v <= 0.0:
+                    continue
+                u = random.random()
+                if u < 1.0 - 0.0331 * (x ** 2) ** 2:
+                    s = d * v
+                    break
+                if math.log(u) < 0.5 * x ** 2 + d * (1.0 - v + math.log(v)):
+                    s = d * v
+                    break
+            if boost:
+                s *= random.random() ** (1.0 / self.alpha)
+            results.append(s / self.beta)
+        return results
