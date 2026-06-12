@@ -167,3 +167,9 @@ def roc_auc(y_true: Vector, y_proba: Vector) -> float:
     area += (new_fpr - fpr) * (tpr + new_tpr) / 2.0
 
     return area
+
+
+def accuracy_score(y_true: Vector, y_pred: Vector) -> float:
+    n = _check_lengths(y_true, y_pred)
+    correct = sum(1 for i in range(n) if y_true[i] == y_pred[i])
+    return correct / n
