@@ -131,7 +131,7 @@ class LinearSVM(MLModels):
         return [self.w]
 
 
-# 2. KernelSVM — dual form, simplified SMO, supports RBF / poly / linear
+# KernelSVM — dual form, simplified SMO, supports RBF / poly / linear
 
 class KernelSVM(MLModels):
     """
@@ -166,3 +166,174 @@ class KernelSVM(MLModels):
             raise RuntimeError(
                 f"{type(self).__name__} is not fitted. Call fit() before predict() or score()."
             )
+
+    def fit(self, X: Matrix, y: Vector) -> None:
+        self._validate_Xy(X, y)
+        _check_pm1(y)
+
+        m = X.n_rows
+        if m < 2:
+            raise ValueError(
+                f"KernelSVM requires at least 2 samples to fit (SMO optimizes pairs "
+                f"of alphas), got {m}."
+            )
+        Xs = [X.rows[i] for i in range(m)]
+        ys = list(y)
+
+        # _check_pm1 already restricted every label to +1/-1 (int or float,
+        # which compare/hash equal in Python), so a plain set() over ys is
+        # sufficient here -- no need to re-normalize the values.
+        if len(set(ys)) < 2:
+            raise ValueError(
+                "y must contain both +1 and -1 labels; got samples from only one class."
+            )
+
+        # Precompute the full kernel (Gram) matrix once -- O(m^2) kernel calls
+        K = [[0.0] * m for _ in range(m)]
+        for i in range(m):
+            for j in range(i, m):
+                val = self._kernel_fn(Xs[i], Xs[j])
+                K[i][j] = val
+                K[j][i] = val
+
+        alpha = [0.0] * m
+        b = 0.0
+        rng = random.Random(self.random_state)
+
+        def f(i: int) -> float:
+            return sum(alpha[k] * ys[k] * K[k][i] for k in range(m)) + b
+
+        passes = 0
+        total_sweeps = 0
+        while passes < self.max_passes:
+            num_changed = 0
+            total_sweeps += 1
+            for i in range(m):
+                Ei = f(i) - ys[i]
+                if (ys[i] * Ei < -self.tol and alpha[i] < self.C) or \
+                (ys[i] * Ei > self.tol and alpha[i] > 0.0):
+
+                    j = i
+                    while j == i:
+                        j = rng.randint(0, m - 1)
+
+                    Ej = f(j) - ys[j]
+                    alpha_i_old, alpha_j_old = alpha[i], alpha[j]
+
+                    if ys[i] != ys[j]:
+                        L = max(0.0, alpha[j] - alpha[i])
+                        H = min(self.C, self.C + alpha[j] - alpha[i])
+                    else:
+                        L = max(0.0, alpha[i] + alpha[j] - self.C)
+                        H = min(self.C, alpha[i] + alpha[j])
+
+                    if L == H:
+                        continue
+
+                    eta = 2.0 * K[i][j] - K[i][i] - K[j][j]
+                    if eta >= 0.0:
+                        continue
+
+                    alpha_j_new = alpha[j] - ys[j] * (Ei - Ej) / eta
+                    alpha_j_new = max(L, min(H, alpha_j_new))
+
+                    if abs(alpha_j_new - alpha_j_old) < 1e-5:
+                        continue
+
+                    alpha[j] = alpha_j_new
+                    alpha[i] = alpha_i_old + ys[i] * ys[j] * (alpha_j_old - alpha[j])
+
+                    b1 = (b - Ei
+                        - ys[i] * (alpha[i] - alpha_i_old) * K[i][i]
+                        - ys[j] * (alpha[j] - alpha_j_old) * K[i][j])
+                    b2 = (b - Ej
+                        - ys[i] * (alpha[i] - alpha_i_old) * K[i][j]
+                        - ys[j] * (alpha[j] - alpha_j_old) * K[j][j])
+
+                    if 0.0 < alpha[i] < self.C:
+                        b = b1
+                    elif 0.0 < alpha[j] < self.C:
+                        b = b2
+                    else:
+                        b = (b1 + b2) / 2.0
+
+                    num_changed += 1
+
+            passes = passes + 1 if num_changed == 0 else 0
+
+        # Keep only support vectors (alpha > tiny threshold) for fast inference
+        sv_idx = [i for i in range(m) if alpha[i] > 1e-7]
+        self.alphas = [alpha[i] for i in sv_idx]
+        self.support_X = [Xs[i] for i in sv_idx]
+        self.support_y = [ys[i] for i in sv_idx]
+        self.b = b
+        self.n_support = len(sv_idx)
+        self.n_passes_run = total_sweeps
+
+        # Kept for dual_objective(); not used by predict()/decision_function(),
+        # which only need the (typically much smaller) support-vector subset.
+        self._all_alpha = alpha
+        self._all_ys = ys
+        self._K = K
+
+        self._fitted = True
+
+        if self.n_support == 0:
+            warnings.warn(
+                "KernelSVM converged with 0 support vectors (every alpha stayed "
+                "near 0). The model will predict a single constant class based "
+                "only on the bias term. This can legitimately happen with a "
+                "very small C or a kernel/gamma mismatched to the data scale -- "
+                "consider increasing C or checking your kernel parameters.",
+                stacklevel=2,
+            )
+
+    def dual_objective(self) -> float:
+        """
+        SMO's dual objective at the current solution:
+            W(alpha) = sum(alpha_i) - 0.5 * sum_i sum_j alpha_i*alpha_j*y_i*y_j*K(x_i,x_j)
+        Higher is better; useful for confirming the optimizer made progress
+        (e.g. plotting W(alpha) across re-fits with different max_passes).
+        """
+        self._check_is_fitted()
+        alpha = self._all_alpha
+        ys = self._all_ys
+        K = self._K
+        m = len(alpha)
+        linear_term = sum(alpha)
+        quad_term = 0.0
+        for i in range(m):
+            if alpha[i] == 0.0:
+                continue
+            ai_yi = alpha[i] * ys[i]
+            for j in range(m):
+                if alpha[j] == 0.0:
+                    continue
+                quad_term += ai_yi * alpha[j] * ys[j] * K[i][j]
+        return linear_term - 0.5 * quad_term
+
+    def decision_function(self, X: Matrix) -> Vector:
+        self._check_is_fitted()
+        if not isinstance(X, Matrix):
+            raise TypeError(f"X must be a Matrix, got {type(X).__name__}")
+        scores = []
+        for i in range(X.n_rows):
+            x = X.rows[i]
+            s = self.b
+            for a, sv_x, sv_y in zip(self.alphas, self.support_X, self.support_y):
+                s += a * sv_y * self._kernel_fn(sv_x, x)
+            scores.append(s)
+        return Vector(scores)
+
+    def predict(self, X: Matrix) -> Vector:
+        scores = self.decision_function(X)
+        return Vector([1.0 if s >= 0.0 else -1.0 for s in scores])
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        self._validate_Xy(X, y)
+        return accuracy(y, self.predict(X))
+
+    def parameters(self) -> dict:
+        self._check_is_fitted()
+        return {"alphas": self.alphas, "b": self.b, "n_support": self.n_support}
+
