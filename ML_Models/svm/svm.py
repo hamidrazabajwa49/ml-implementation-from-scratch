@@ -130,5 +130,39 @@ class LinearSVM(MLModels):
         self._check_is_fitted()
         return [self.w]
 
-    
 
+# 2. KernelSVM — dual form, simplified SMO, supports RBF / poly / linear
+
+class KernelSVM(MLModels):
+    """
+    Soft-margin kernel SVM solved via simplified SMO (Sequential Minimal
+    Optimization). No QP library needed: optimize one pair (alpha_i, alpha_j)
+    at a time, each pair has a closed-form solution.
+    """
+
+    def __init__(self, C: float = 1.0, kernel: str = 'rbf', gamma: float = None,
+                degree: int = 3, coef0: float = 1.0,
+                tol: float = 1e-3, max_passes: int = 10,
+                random_state: int = None):
+        _check_positive_number(C, "C")
+        _check_positive_number(tol, "tol")
+        _check_positive_int(max_passes, "max_passes")
+        if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
+            raise TypeError(f"random_state must be an int or None, got {type(random_state).__name__}")
+        if isinstance(kernel, str) and kernel == 'rbf' and gamma is not None and gamma <= 0.0:
+            raise ValueError(f"gamma must be positive, got {gamma}")
+        if isinstance(kernel, str) and kernel == 'poly':
+            if not isinstance(degree, int) or isinstance(degree, bool) or degree < 1:
+                raise ValueError(f"degree must be an int >= 1, got {degree}")
+        self.C = C
+        self.tol = tol
+        self.max_passes = max_passes
+        self.random_state = random_state
+        self._kernel_fn = _resolve_kernel(kernel, gamma, degree, coef0)
+        self._fitted = False
+
+    def _check_is_fitted(self) -> None:
+        if not self._fitted:
+            raise RuntimeError(
+                f"{type(self).__name__} is not fitted. Call fit() before predict() or score()."
+            )
