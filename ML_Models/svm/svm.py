@@ -60,3 +60,75 @@ class LinearSVM(MLModels):
         self.C = C
         self.lr = lr
         self.n_iter = n_iter
+
+    def fit(self, X: Matrix, y: Vector, optimizer=None) -> None:
+        self._validate_Xy(X, y)
+        _check_pm1(y)
+
+        A = self._add_bias_column(X)        # bias prepended at index 0
+        m, d = A.n_rows, A.n_cols
+        self.w = Vector([0.0] * d)
+        self.loss_history: list = []
+
+        if optimizer is None:
+            optimizer = Adam(lr=self.lr)
+        elif getattr(optimizer, "t", 0):
+            warnings.warn(
+                "Optimizer instance passed to fit() already has accumulated "
+                "state from a previous fit() call; resetting it so this fit() "
+                "starts from a clean state. Pass a fresh optimizer instance "
+                "per fit() call to avoid this warning.",
+                stacklevel=2,
+            )
+            optimizer.t = 0
+            optimizer.m = None
+            optimizer.v = None
+
+        for t in range(self.n_iter):
+            margins = [y[i] * A.rows[i].dot(self.w) for i in range(m)]
+            violators = [i for i in range(m) if margins[i] < 1.0]
+
+            # Hinge gradient
+            grad_components = [0.0] * d
+            for i in violators:
+                row = A.rows[i].components
+                yi = y[i]
+                for j in range(d):
+                    grad_components[j] -= (self.C / m) * yi * row[j]
+
+            # L2 regularization gradient, bias (index 0) excluded
+            for j in range(1, d):
+                grad_components[j] += self.w[j]
+
+            grad = Vector(grad_components)
+            params = [self.w]
+            optimizer.step(params, [grad])
+            self.w = params[0]
+
+            if t % 100 == 0 or t == self.n_iter - 1:
+                reg_term = 0.5 * sum(self.w[j] ** 2 for j in range(1, d))
+                hinge_term = (self.C / m) * sum(max(0.0, 1.0 - margins[i]) for i in range(m))
+                optimizer.record(reg_term + hinge_term)
+                self.loss_history.append(reg_term + hinge_term)
+
+    def decision_function(self, X: Matrix) -> Vector:
+        self._check_is_fitted()
+        if not isinstance(X, Matrix):
+            raise TypeError(f"X must be a Matrix, got {type(X).__name__}")
+        A = self._add_bias_column(X)
+        return A * self.w
+
+    def predict(self, X: Matrix) -> Vector:
+        scores = self.decision_function(X)
+        return Vector([1.0 if s >= 0.0 else -1.0 for s in scores])
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        self._validate_Xy(X, y)
+        return accuracy(y, self.predict(X))
+
+    def parameters(self) -> List[Union[float, Vector, Matrix]]:
+        self._check_is_fitted()
+        return [self.w]
+
+    
+
