@@ -54,3 +54,35 @@ def _sample_features(n_features: int, max_features: int, seed: int) -> List[int]
         return list(range(n_features))
     return sorted(rng.sample(range(n_features), max_features))
 
+def _project_X(X_data: list, feature_indices: List[int]) -> list:
+    return [[row[j] for j in feature_indices] for row in X_data]
+
+
+def _resolve_max_features(max_features, n_features: int, task: str) -> int:
+    if isinstance(max_features, bool):
+        raise ValueError(
+            f"max_features must not be a bool, got {max_features!r}. "
+            "Use an int, float, 'sqrt', 'log2', or None instead."
+        )
+    if n_features < 1:
+        raise ValueError(f"n_features must be >= 1, got {n_features}")
+    if max_features is None:
+        return max(1, int(round(n_features ** 0.5))) if task == 'classification' else max(1, n_features)
+    if max_features == 'sqrt':
+        return max(1, int(round(n_features ** 0.5)))
+    if max_features == 'log2':
+        # log2(1) == 0 → clamped to 1; guarded against n_features < 1 above
+        return max(1, int(math.log2(n_features)))
+    if isinstance(max_features, int):
+        if max_features < 1 or max_features > n_features:
+            raise ValueError(
+                f"max_features={max_features} out of range [1, {n_features}]"
+            )
+        return max_features
+    if isinstance(max_features, float):
+        if not (0.0 < max_features <= 1.0):
+            raise ValueError(
+                f"max_features float must be in (0, 1], got {max_features}"
+            )
+        return max(1, int(max_features * n_features))
+    raise ValueError(f"Unsupported max_features value: {max_features!r}")
