@@ -160,7 +160,6 @@ def _validate_common_params(n_estimators, max_depth, min_samples_split, min_impu
     _validate_random_state(random_state)
 
 
-# ---------------------------------------------------------------------------
 # RandomForestClassifier
 class RandomForestClassifier(MLModels):
     """Random forest classifier: ensemble of decision trees, each trained
@@ -490,3 +489,11 @@ class RandomForestRegressor(MLModels):
             self.oob_score_ = self._compute_oob_reg(oob_sums, oob_counts, y_data, n_samples, any_oob)
 
         return self
+
+        def _compute_oob_reg(self, oob_sums, oob_counts, y_data, n_samples, any_oob) -> Optional[float]:
+            if not any_oob:
+                warnings.warn(
+                    "No OOB samples found. Increase n_estimators or dataset size.",
+                    UserWarning,
+                )
+                return None
