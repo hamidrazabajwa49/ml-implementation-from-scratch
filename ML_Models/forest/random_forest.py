@@ -490,10 +490,38 @@ class RandomForestRegressor(MLModels):
 
         return self
 
-        def _compute_oob_reg(self, oob_sums, oob_counts, y_data, n_samples, any_oob) -> Optional[float]:
-            if not any_oob:
-                warnings.warn(
-                    "No OOB samples found. Increase n_estimators or dataset size.",
-                    UserWarning,
-                )
-                return None
+    def _compute_oob_reg(self, oob_sums, oob_counts, y_data, n_samples, any_oob) -> Optional[float]:
+        if not any_oob:
+            warnings.warn(
+                "No OOB samples found. Increase n_estimators or dataset size.",
+                UserWarning,
+            )
+            return None
+
+    def predict(self, X: Matrix) -> Vector:
+        self._check_is_fitted()
+        if not isinstance(X, Matrix):
+            raise TypeError(f"X must be a Matrix, got {type(X).__name__}")
+        X_data = _matrix_to_list(X)
+        _check_n_features(X_data, self.n_features_in_, type(self).__name__)
+        preds = []
+        for row in X_data:
+            tree_preds = [tree.predict_one(row) for tree in self._trees]
+            preds.append(sum(tree_preds) / len(tree_preds))
+        return Vector(preds)
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        self._validate_Xy(X, y)
+        return r2_score(y, self.predict(X))
+
+    def get_params(self) -> dict:
+        return {
+            'n_estimators': self.n_estimators,
+            'max_depth': self.max_depth,
+            'min_samples_split': self.min_samples_split,
+            'min_impurity_decrease': self.min_impurity_decrease,
+            'max_features': self.max_features,
+            'random_state': self.random_state,
+            'oob_score': self.oob_score,
+        }
+        
