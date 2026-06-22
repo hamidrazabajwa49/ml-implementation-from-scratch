@@ -524,4 +524,40 @@ class RandomForestRegressor(MLModels):
             'random_state': self.random_state,
             'oob_score': self.oob_score,
         }
-        
+
+    def set_params(self, **params) -> "RandomForestRegressor":
+        # Update hyperparameters with validation. 
+        valid = set(self.get_params().keys())
+        unknown = set(params) - valid
+        if unknown:
+            raise ValueError(f"Unknown parameter(s): {sorted(unknown)}")
+
+        merged = {**self.get_params(), **params}
+        _validate_common_params(
+            merged['n_estimators'], merged['max_depth'],
+            merged['min_samples_split'], merged['min_impurity_decrease'],
+            merged['random_state'],
+        )
+
+        training_params = {
+            'n_estimators', 'max_depth', 'min_samples_split',
+            'min_impurity_decrease', 'max_features', 'random_state',
+        }
+        if params.keys() & training_params:
+            self._trees = []
+            self.n_features_in_ = None
+            self.oob_score_ = None
+
+        for k, v in params.items():
+            setattr(self, k, v)
+        return self
+
+    def parameters(self) -> dict:
+        self._check_is_fitted()
+        return {
+            'n_estimators': self.n_estimators,
+            'max_depth': self.max_depth,
+            'max_features': self.max_features,
+            'n_features_in': self.n_features_in_,
+            'oob_score': self.oob_score_,
+        }
