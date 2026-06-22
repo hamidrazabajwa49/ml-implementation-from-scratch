@@ -414,3 +414,79 @@ class RandomForestClassifier(MLModels):
             f"criterion={self.criterion!r}, max_depth={self.max_depth}, "
             f"max_features={self.max_features!r}, random_state={self.random_state})"
         )
+
+
+# RandomForestRegressor
+class RandomForestRegressor(MLModels):
+
+    def __init__(
+        self,
+        n_estimators: int = 100,
+        max_depth: Optional[int] = None,
+        min_samples_split: int = 2,
+        min_impurity_decrease: float = 0.0,
+        max_features: Union[str, int, float, None] = None,
+        random_state: Optional[int] = None,
+        oob_score: bool = False,
+    ):
+        _validate_common_params(n_estimators, max_depth, min_samples_split, min_impurity_decrease, random_state)
+
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.min_impurity_decrease = min_impurity_decrease
+        self.max_features = max_features
+        self.random_state = random_state
+        self.oob_score = oob_score
+
+        self._trees: List[_TreeRecord] = []
+        self.n_features_in_: Optional[int] = None
+        self.oob_score_: Optional[float] = None
+
+    def fit(self, X: Matrix, y: Vector) -> "RandomForestRegressor":
+        self._validate_Xy(X, y)
+        X_data = _matrix_to_list(X)
+        y_data = _vector_to_list(y)
+        n_samples = len(X_data)
+        n_features = len(X_data[0])
+        if n_features == 0:
+            raise ValueError("Cannot fit on data with 0 features.")
+
+        self.n_features_in_ = n_features
+
+        max_feat = _resolve_max_features(self.max_features, n_features, 'regression')
+        base_seed = self.random_state if self.random_state is not None \
+            else random.randint(0, 2 ** 31 - 1)
+
+        self._trees = []
+        oob_sums = [0.0] * n_samples
+        oob_counts = [0] * n_samples
+        any_oob = False
+
+        for t in range(self.n_estimators):
+            tree_seed = base_seed + 2 * t
+            X_boot, y_boot, oob_idx = _bootstrap_sample(X_data, y_data, seed=tree_seed)
+            feat_idx = _sample_features(n_features, max_feat, seed=tree_seed + 1)
+            X_proj = _project_X(X_boot, feat_idx)
+
+            root = _build(
+                X_proj, y_boot,
+                'variance', _leaf_value_regressor,
+                depth=0,
+                max_depth=self.max_depth,
+                min_samples_split=self.min_samples_split,
+                min_impurity_decrease=self.min_impurity_decrease,
+            )
+            record = _TreeRecord(root, feat_idx)
+            self._trees.append(record)
+
+            if self.oob_score and oob_idx:
+                any_oob = True
+                for i in oob_idx:
+                    oob_sums[i] += record.predict_one(X_data[i])
+                    oob_counts[i] += 1
+
+        if self.oob_score:
+            self.oob_score_ = self._compute_oob_reg(oob_sums, oob_counts, y_data, n_samples, any_oob)
+
+        return self
