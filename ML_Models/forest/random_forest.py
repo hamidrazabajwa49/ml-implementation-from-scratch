@@ -37,6 +37,7 @@ __all__ = [
 
 
 # Bootstrap sampling
+
 def _bootstrap_sample(X_data: list, y_data: list, seed: int):
     rng = random.Random(seed)
     n = len(X_data)
@@ -53,6 +54,7 @@ def _sample_features(n_features: int, max_features: int, seed: int) -> List[int]
     if max_features >= n_features:
         return list(range(n_features))
     return sorted(rng.sample(range(n_features), max_features))
+
 
 def _project_X(X_data: list, feature_indices: List[int]) -> list:
     return [[row[j] for j in feature_indices] for row in X_data]
@@ -86,6 +88,7 @@ def _resolve_max_features(max_features, n_features: int, task: str) -> int:
             )
         return max(1, int(max_features * n_features))
     raise ValueError(f"Unsupported max_features value: {max_features!r}")
+
 
 
 # Single tree record — fitted root + feature subset used at build time
@@ -157,6 +160,8 @@ def _validate_common_params(n_estimators, max_depth, min_samples_split, min_impu
     _validate_random_state(random_state)
 
 
+# ---------------------------------------------------------------------------
+# RandomForestClassifier
 class RandomForestClassifier(MLModels):
     """Random forest classifier: ensemble of decision trees, each trained
     on a bootstrap sample with a random feature subset at every split.
