@@ -185,3 +185,93 @@ class GaussianNB(MLModels):
 
         return self
 
+    def partial_fit(self, X: Matrix, y: Vector) -> "GaussianNB":
+        """
+        Incremental fit on a new batch. 
+        Updates sufficient statistics (mean, variance, count) using Welford's online algorithm so the full dataset never needs to be stored.
+        """
+        self._validate_Xy(X, y)
+        _validate_finite_matrix(X)
+        _validate_y_vector(y)
+
+        n_features = X.n_cols
+        labels = [y[i] for i in range(len(y))]
+        new_classes = sorted(set(labels))
+
+        if self._classes is None:
+            # First call ever.
+            self._classes = []
+            self._log_priors = {}
+            self._distributions = {}
+            self._class_counts = {}
+            self._means = {}
+            self._M2 = {}
+            self._n_features = n_features
+        elif self._n_features is None:
+            self._n_features = n_features
+
+        if n_features != self._n_features:
+            raise ValueError(
+                f"partial_fit expects {self._n_features} feature column(s), got {n_features}"
+            )
+
+        # If fit() (not partial_fit) populated the classes/distributions but never initialised the running Welford accumulators
+        if self._means is None or self._M2 is None:
+            self._means = {}
+            self._M2 = {}
+        for c in self._classes:
+            if c not in self._means:
+                if self._distributions is not None and c in self._distributions:
+                    self._means[c] = [d.mu for d in self._distributions[c]]
+                    n_c = self._class_counts.get(c, 0)
+                    self._M2[c] = [
+                        max(d.sigma ** 2 - self.var_smoothing, 0.0) * n_c
+                        for d in self._distributions[c]
+                    ]
+                else:
+                    self._means[c] = [0.0] * n_features
+                    self._M2[c] = [0.0] * n_features
+
+        # merge any new classes seen in this batch
+        for c in new_classes:
+            if c not in self._classes:
+                self._classes = sorted(set(self._classes) | {c})
+                self._class_counts[c] = 0
+                self._means[c] = [0.0] * n_features
+                self._M2[c] = [0.0] * n_features
+
+        # Welford update
+        for i, lbl in enumerate(labels):
+            self._class_counts[lbl] = self._class_counts.get(lbl, 0) + 1
+            n = self._class_counts[lbl]
+            for j in range(n_features):
+                x_val = X.rows[i].components[j]
+                delta = x_val - self._means[lbl][j]
+                self._means[lbl][j] += delta / n
+                delta2 = x_val - self._means[lbl][j]
+                self._M2[lbl][j] += delta * delta2
+
+        # rebuild NormalDistribution objects and log_priors
+        total = sum(self._class_counts.values())
+        if total == 0:
+            raise RuntimeError("partial_fit received no samples to accumulate.")
+
+        if self.priors is not None:
+            _validate_priors(self.priors, self._classes)
+
+        for c in self._classes:
+            n_c = self._class_counts[c]
+            if self.priors is not None:
+                self._log_priors[c] = _safe_log(self.priors[c])
+            else:
+                self._log_priors[c] = _safe_log(n_c / total) if n_c > 0 else _safe_log(0.0)
+            dists = []
+            for j in range(n_features):
+                mu = self._means[c][j]
+                raw_var = (self._M2[c][j] / n_c) if n_c > 1 else 0.0
+                var = max(raw_var + self.var_smoothing, self._MIN_VARIANCE)
+                dists.append(NormalDistribution(mu=mu, sigma=math.sqrt(var)))
+            self._distributions[c] = dists
+
+        return self
+
