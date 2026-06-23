@@ -104,3 +104,84 @@ def _validate_y_vector(y: "Vector") -> None:
         lbl = y[i]
         if isinstance(lbl, float) and not math.isfinite(lbl):
             raise ValueError(f"y[{i}] is {lbl!r}; class labels must be finite.")
+
+
+
+# GaussianNB
+class GaussianNB(MLModels):
+
+    # Hard floor on variance regardless of var_smoothing
+    _MIN_VARIANCE = 1e-12
+
+    def __init__(
+        self,
+        var_smoothing: float = 1e-9,
+        priors: Optional[Dict[float, float]] = None,
+    ):
+        if not isinstance(var_smoothing, (int, float)) or isinstance(var_smoothing, bool):
+            raise TypeError(f"var_smoothing must be numeric, got {type(var_smoothing).__name__}")
+        if not math.isfinite(var_smoothing):
+            raise ValueError(f"var_smoothing must be finite, got {var_smoothing}")
+        if var_smoothing < 0:
+            raise ValueError(f"var_smoothing must be non-negative, got {var_smoothing}")
+        self.var_smoothing = var_smoothing
+        self.priors = priors
+        self._classes: Optional[List[float]] = None
+        self._log_priors: Optional[Dict[float, float]] = None
+        self._distributions: Optional[Dict[float, List[NormalDistribution]]] = None
+        self._class_counts: Optional[Dict[float, int]] = None
+        self._n_features: Optional[int] = None
+        # Running (Welford) sufficient statistics, used by partial_fit().
+        self._means: Optional[Dict[float, List[float]]] = None
+        self._M2: Optional[Dict[float, List[float]]] = None
+
+    def fit(self, X: Matrix, y: Vector) -> "GaussianNB":
+        self._validate_Xy(X, y)
+        _validate_finite_matrix(X)
+        _validate_y_vector(y)
+
+        n_samples = X.n_rows
+        n_features = X.n_cols
+        labels = [y[i] for i in range(len(y))]
+
+        self._classes = sorted(set(labels))
+        self._n_features = n_features
+        self._log_priors = {}
+        self._distributions = {}
+        self._class_counts = {}
+        # Reset incremental state
+        self._means = {}
+        self._M2 = {}
+
+        if self.priors is not None:
+            _validate_priors(self.priors, self._classes)
+
+        for c in self._classes:
+            indices = [i for i, lbl in enumerate(labels) if lbl == c]
+            n_c = len(indices)
+            self._class_counts[c] = n_c
+
+            if self.priors is not None:
+                self._log_priors[c] = _safe_log(self.priors[c])
+            else:
+                self._log_priors[c] = _safe_log(n_c / n_samples)
+
+            dists: List[NormalDistribution] = []
+            means_c: List[float] = []
+            m2_c: List[float] = []
+            for j in range(n_features):
+                col_values = [X.rows[i].components[j] for i in indices]
+                stats = DescriptiveStats(col_values)
+                mu = stats.mean()
+                raw_var = stats.variance(ddof=0)
+                var = max(raw_var + self.var_smoothing, self._MIN_VARIANCE)
+                dists.append(NormalDistribution(mu=mu, sigma=math.sqrt(var)))
+                means_c.append(mu)
+                m2_c.append(raw_var * n_c)  # store as M2 = n * population_variance
+
+            self._distributions[c] = dists
+            self._means[c] = means_c
+            self._M2[c] = m2_c
+
+        return self
+
