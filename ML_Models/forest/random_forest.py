@@ -561,3 +561,16 @@ class RandomForestRegressor(MLModels):
             'n_features_in': self.n_features_in_,
             'oob_score': self.oob_score_,
         }
+
+    def _check_is_fitted(self) -> None:
+        if not self._trees:
+            raise RuntimeError(
+                f"{type(self).__name__} is not fitted. Call fit() before predict()."
+            )
+
+    def __repr__(self) -> str:
+        return (
+            f"RandomForestRegressor(n_estimators={self.n_estimators}, "
+            f"max_depth={self.max_depth}, max_features={self.max_features!r}, "
+            f"random_state={self.random_state})"
+        )
