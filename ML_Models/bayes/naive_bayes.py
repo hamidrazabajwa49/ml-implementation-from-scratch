@@ -62,3 +62,45 @@ def _validate_priors(priors: Dict, classes: List) -> None:
         raise ValueError(f"priors must sum to 1.0, got {total}")
     if any(p < 0 for p in priors.values()):
         raise ValueError("all priors must be non-negative")
+
+def _validate_X_matrix(X, n_features: Optional[int] = None) -> None:
+    if not isinstance(X, Matrix):
+        raise TypeError(f"X must be a Matrix, got {type(X).__name__}")
+    if X.n_rows == 0:
+        raise ValueError("X must not be empty (0 rows)")
+    if X.n_cols == 0:
+        raise ValueError("X must not be empty (0 feature columns)")
+    if n_features is not None and X.n_cols != n_features:
+        raise ValueError(
+            f"Expected {n_features} feature column(s), got {X.n_cols}. "
+            f"X passed to predict()/predict_proba() must have the same "
+            f"number of columns as the X used in fit()."
+        )
+    _validate_finite_matrix(X)
+
+
+def _validate_finite_matrix(X: "Matrix") -> None:
+    for i in range(X.n_rows):
+        row = X.rows[i].components
+        if len(row) != X.n_cols:
+            raise ValueError(
+                f"Row {i} has {len(row)} columns, expected {X.n_cols} "
+                f"(jagged/ragged matrix)."
+            )
+        for j, v in enumerate(row):
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                raise TypeError(
+                    f"X[{i}][{j}] must be numeric, got {type(v).__name__}"
+                )
+            if not math.isfinite(v):
+                raise ValueError(
+                    f"X[{i}][{j}] is {v!r}; NaN/Inf feature values are not "
+                    f"supported -- clean or impute your data first."
+                )
+                
+
+def _validate_y_vector(y: "Vector") -> None:
+    for i in range(len(y)):
+        lbl = y[i]
+        if isinstance(lbl, float) and not math.isfinite(lbl):
+            raise ValueError(f"y[{i}] is {lbl!r}; class labels must be finite.")
