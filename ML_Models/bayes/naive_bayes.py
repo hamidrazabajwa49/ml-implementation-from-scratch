@@ -332,3 +332,46 @@ class GaussianNB(MLModels):
             raise RuntimeError(
                 "GaussianNB is not fitted. Call fit() before predict() or score()."
             )
+
+
+
+# BernoulliNB
+class BernoulliNB(MLModels):
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        binarise_threshold: Optional[float] = 0.0,
+        priors: Optional[Dict[float, float]] = None,
+    ):
+        if not isinstance(alpha, (int, float)) or isinstance(alpha, bool):
+            raise TypeError(f"alpha must be numeric, got {type(alpha).__name__}")
+        if not math.isfinite(alpha):
+            raise ValueError(f"alpha must be finite, got {alpha}")
+        if alpha < 0:
+            raise ValueError(f"alpha must be non-negative, got {alpha}")
+        if binarise_threshold is not None and not isinstance(binarise_threshold, (int, float)):
+            raise TypeError(
+                f"binarise_threshold must be numeric or None, got {type(binarise_threshold).__name__}"
+            )
+        self.alpha = alpha
+        self.binarise_threshold = binarise_threshold
+        self.priors = priors
+        self._classes: Optional[List[float]] = None
+        self._log_priors: Optional[Dict[float, float]] = None
+        self._log_p: Optional[Dict[float, List[float]]] = None       # log P(x_j=1|c)
+        self._log_1mp: Optional[Dict[float, List[float]]] = None     # log P(x_j=0|c)
+        self._class_counts: Optional[Dict[float, int]] = None
+        self._feature_counts: Optional[Dict[float, List[float]]] = None
+        self._n_features: Optional[int] = None
+
+    def _binarise(self, X: Matrix) -> Matrix:
+        if self.binarise_threshold is None:
+            return X
+        t = self.binarise_threshold
+        new_rows = []
+        for i in range(X.n_rows):
+            new_rows.append(
+                [1.0 if v > t else 0.0 for v in X.rows[i].components]
+            )
+        return Matrix(new_rows)
