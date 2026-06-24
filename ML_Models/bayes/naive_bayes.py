@@ -375,3 +375,43 @@ class BernoulliNB(MLModels):
                 [1.0 if v > t else 0.0 for v in X.rows[i].components]
             )
         return Matrix(new_rows)
+
+    def _binarise(self, X: Matrix) -> Matrix:
+        if self.binarise_threshold is None:
+            return X
+        t = self.binarise_threshold
+        new_rows = []
+        for i in range(X.n_rows):
+            new_rows.append(
+                [1.0 if v > t else 0.0 for v in X.rows[i].components]
+            )
+        return Matrix(new_rows)
+
+    def _compute_log_likelihoods(self) -> None:
+        self._log_p = {}
+        self._log_1mp = {}
+        for c in self._classes:
+            n_c = self._class_counts[c]
+            log_p_c = []
+            log_1mp_c = []
+            for j in range(self._n_features):
+                denom = n_c + 2 * self.alpha
+                if denom <= 0:
+                    raise ValueError(
+                        f"Cannot fit BernoulliNB: class {c!r} has 0 samples "
+                        f"and alpha={self.alpha}, making p_cj = 0/0 for "
+                        f"feature {j}. Increase alpha or remove the empty class."
+                    )
+                p_cj = (self._feature_counts[c][j] + self.alpha) / denom
+                if p_cj <= 0.0 or p_cj >= 1.0:
+                    raise ValueError(
+                        f"Cannot fit BernoulliNB: feature {j} is constant "
+                        f"(always {'present' if p_cj >= 1.0 else 'absent'}) "
+                        f"within class {c!r} and alpha=0.0, making "
+                        f"{'log(1-p)' if p_cj >= 1.0 else 'log(p)'} undefined. "
+                        f"Increase alpha above 0 to apply Laplace smoothing."
+                    )
+                log_p_c.append(_safe_log(p_cj))
+                log_1mp_c.append(_safe_log(1.0 - p_cj))
+            self._log_p[c] = log_p_c
+            self._log_1mp[c] = log_1mp_c
