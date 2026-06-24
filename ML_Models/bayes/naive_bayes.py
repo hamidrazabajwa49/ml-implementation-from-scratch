@@ -302,3 +302,33 @@ class GaussianNB(MLModels):
             _log_sum_exp_proba(self._log_posterior(X.rows[i]))
             for i in range(X.n_rows)
         ]
+
+    def predict_log_proba(self, X: Matrix) -> List[Dict[float, float]]:
+        """Returns raw unnormalised log-posteriors (faster, no exp needed)."""
+        self._check_is_fitted()
+        _validate_X_matrix(X, n_features=self._n_features)
+        return [self._log_posterior(X.rows[i]) for i in range(X.n_rows)]
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        self._validate_Xy(X, y)
+        return accuracy_score(y, self.predict(X))
+
+    def parameters(self) -> dict:
+        self._check_is_fitted()
+        return {
+            "classes": self._classes,
+            "class_counts": self._class_counts,
+            "log_priors": self._log_priors,
+            "theta": {
+                c: [(d.mu, d.sigma) for d in dists]
+                for c, dists in self._distributions.items()
+            },
+            "var_smoothing": self.var_smoothing,
+            "n_features": self._n_features,
+        }
+
+    def _check_is_fitted(self) -> None:
+        if self._classes is None or not self._classes:
+            raise RuntimeError(
+                "GaussianNB is not fitted. Call fit() before predict() or score()."
+            )
