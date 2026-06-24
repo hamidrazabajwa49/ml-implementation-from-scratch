@@ -376,16 +376,6 @@ class BernoulliNB(MLModels):
             )
         return Matrix(new_rows)
 
-    def _binarise(self, X: Matrix) -> Matrix:
-        if self.binarise_threshold is None:
-            return X
-        t = self.binarise_threshold
-        new_rows = []
-        for i in range(X.n_rows):
-            new_rows.append(
-                [1.0 if v > t else 0.0 for v in X.rows[i].components]
-            )
-        return Matrix(new_rows)
 
     def _compute_log_likelihoods(self) -> None:
         self._log_p = {}
@@ -415,3 +405,62 @@ class BernoulliNB(MLModels):
                 log_1mp_c.append(_safe_log(1.0 - p_cj))
             self._log_p[c] = log_p_c
             self._log_1mp[c] = log_1mp_c
+
+    def fit(self, X: Matrix, y: Vector) -> "BernoulliNB":
+        self._validate_Xy(X, y)
+        _validate_finite_matrix(X)
+        _validate_y_vector(y)
+        X = self._binarise(X)
+
+        n_samples = X.n_rows
+        self._n_features = X.n_cols
+        labels = [y[i] for i in range(len(y))]
+
+        self._classes = sorted(set(labels))
+        self._log_priors = {}
+        self._class_counts = {}
+        self._feature_counts = {}
+
+        if self.priors is not None:
+            _validate_priors(self.priors, self._classes)
+
+        for c in self._classes:
+            indices = [i for i, lbl in enumerate(labels) if lbl == c]
+            n_c = len(indices)
+            self._class_counts[c] = n_c
+
+            if self.priors is not None:
+                self._log_priors[c] = _safe_log(self.priors[c])
+            else:
+                self._log_priors[c] = _safe_log(n_c / n_samples)
+
+            counts = [0.0] * self._n_features
+            for i in indices:
+                for j in range(self._n_features):
+                    counts[j] += X.rows[i].components[j]
+            self._feature_counts[c] = counts
+
+        self._compute_log_likelihoods()
+        return self
+
+    def partial_fit(self, X: Matrix, y: Vector) -> "BernoulliNB":
+        """Incremental update. Accumulates binary feature counts."""
+        self._validate_Xy(X, y)
+        _validate_finite_matrix(X)
+        _validate_y_vector(y)
+        X = self._binarise(X)
+
+        n_features = X.n_cols
+        labels = [y[i] for i in range(len(y))]
+
+        if self._classes is None:
+            self._classes = []
+            self._log_priors = {}
+            self._class_counts = {}
+            self._feature_counts = {}
+            self._n_features = n_features
+
+        if n_features != self._n_features:
+            raise ValueError(
+                f"partial_fit expects {self._n_features} features, got {n_features}"
+            )
