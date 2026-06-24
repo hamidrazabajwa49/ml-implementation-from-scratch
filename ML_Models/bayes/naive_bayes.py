@@ -275,3 +275,30 @@ class GaussianNB(MLModels):
 
         return self
 
+    def _log_posterior(self, x: Vector) -> Dict[float, float]:
+        scores: Dict[float, float] = {}
+        for c in self._classes:
+            log_p = self._log_priors[c]
+            for j, dist in enumerate(self._distributions[c]):
+                pdf_val = dist.pdf(x.components[j])
+                log_p += _safe_log(pdf_val)
+            scores[c] = log_p
+        return scores
+
+    def predict(self, X: Matrix) -> Vector:
+        self._check_is_fitted()
+        _validate_X_matrix(X, n_features=self._n_features)
+        preds = []
+        for i in range(X.n_rows):
+            scores = self._log_posterior(X.rows[i])
+            preds.append(max(scores, key=lambda c: scores[c]))
+        return Vector(preds)
+
+    def predict_proba(self, X: Matrix) -> List[Dict[float, float]]:
+        # Returns normalised class probabilities for each sample via log-sum-exp.Each dict sums to 1.0.
+        self._check_is_fitted()
+        _validate_X_matrix(X, n_features=self._n_features)
+        return [
+            _log_sum_exp_proba(self._log_posterior(X.rows[i]))
+            for i in range(X.n_rows)
+        ]
