@@ -121,6 +121,26 @@ def leaky_relu_derivative(z, alpha: float = 0.01):
         return Matrix([[1.0 if x > 0 else alpha for x in row.components] for row in z.rows])
     raise TypeError(f"Unsupported type: {type(z)}")
 
+def tanh_derivative(a):
+    """Derivative of tanh given its output a = tanh(z)."""
+    if isinstance(a, (int, float)):
+        return 1.0 - a * a
+    if isinstance(a, Vector):
+        return Vector([1.0 - x * x for x in a.components])
+    if isinstance(a, Matrix):
+        return Matrix([[1.0 - x * x for x in row.components] for row in a.rows])
+    raise TypeError(f"Unsupported type: {type(a)}")
+
+
+def linear_derivative(z):
+    if isinstance(z, (int, float)):
+        return 1.0
+    if isinstance(z, Vector):
+        return Vector([1.0] * len(z.components))
+    if isinstance(z, Matrix):
+        return Matrix([[1.0] * z.n_cols for _ in range(z.n_rows)])
+    raise TypeError(f"Unsupported type: {type(z)}")
+
 
 
 
