@@ -38,7 +38,7 @@ def _log_sum_exp_proba(log_scores: Dict[float, float]) -> Dict[float, float]:
     exp_vals = {c: math.exp(v - max_v) for c, v in log_scores.items()}
     denom = sum(exp_vals.values())
     if denom == 0.0:
-        # Every class scored at -inf relative to itself. Fall back to a uniform distribution rather than dividing by zero.
+        # Every class scored at -inf relative to itself -- fall back to a uniform distribution rather than dividing by zero.
         n = len(log_scores)
         return {c: 1.0 / n for c in log_scores}
     return {c: e / denom for c, e in exp_vals.items()}
@@ -62,6 +62,7 @@ def _validate_priors(priors: Dict, classes: List) -> None:
         raise ValueError(f"priors must sum to 1.0, got {total}")
     if any(p < 0 for p in priors.values()):
         raise ValueError("all priors must be non-negative")
+
 
 def _validate_X_matrix(X, n_features: Optional[int] = None) -> None:
     if not isinstance(X, Matrix):
@@ -97,7 +98,7 @@ def _validate_finite_matrix(X: "Matrix") -> None:
                     f"X[{i}][{j}] is {v!r}; NaN/Inf feature values are not "
                     f"supported -- clean or impute your data first."
                 )
-                
+
 
 def _validate_y_vector(y: "Vector") -> None:
     for i in range(len(y)):
@@ -335,6 +336,215 @@ class GaussianNB(MLModels):
 
 
 
+# MultinomialNB
+class MultinomialNB(MLModels):
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        priors: Optional[Dict[float, float]] = None,
+    ):
+        if not isinstance(alpha, (int, float)) or isinstance(alpha, bool):
+            raise TypeError(f"alpha must be numeric, got {type(alpha).__name__}")
+        if not math.isfinite(alpha):
+            raise ValueError(f"alpha must be finite, got {alpha}")
+        if alpha < 0:
+            raise ValueError(f"alpha must be non-negative, got {alpha}")
+        self.alpha = alpha
+        self.priors = priors
+        self._classes: Optional[List[float]] = None
+        self._log_priors: Optional[Dict[float, float]] = None
+        self._log_likelihoods: Optional[Dict[float, List[float]]] = None
+        self._class_counts: Optional[Dict[float, int]] = None
+        self._feature_counts: Optional[Dict[float, List[float]]] = None
+        self._n_features: Optional[int] = None
+
+    def _validate_counts(self, X: Matrix) -> None:
+        for i in range(X.n_rows):
+            for j in range(X.n_cols):
+                v = X.rows[i].components[j]
+                if v < 0:
+                    raise ValueError(
+                        f"MultinomialNB requires non-negative feature values. "
+                        f"Got {v} at row {i}, col {j}."
+                    )
+
+    def _compute_log_likelihoods(self) -> None:
+        self._log_likelihoods = {}
+        for c in self._classes:
+            total = sum(self._feature_counts[c]) + self.alpha * self._n_features
+            if total <= 0:
+                raise ValueError(
+                    f"Cannot fit MultinomialNB: class {c!r} has zero total "
+                    f"feature count and alpha={self.alpha}, which makes every "
+                    f"likelihood 0/0. Increase alpha (e.g. alpha=1.0) or "
+                    f"check that class {c!r} actually has non-zero feature "
+                    f"counts in the training data."
+                )
+            log_likelihoods_c = []
+            for j in range(self._n_features):
+                numerator = self._feature_counts[c][j] + self.alpha
+                if numerator <= 0:
+                    # Only reachable when alpha == 0 and this feature never
+                    # occurred for this class -- a true zero-probability
+                    # event. Raise clearly instead of letting math.log(0)
+                    # throw "math domain error" with no context.
+                    raise ValueError(
+                        f"Cannot fit MultinomialNB: feature {j} never occurs "
+                        f"for class {c!r} and alpha=0.0, which makes its "
+                        f"likelihood exactly 0 (log undefined). Increase "
+                        f"alpha above 0 to apply Laplace smoothing."
+                    )
+                log_likelihoods_c.append(_safe_log(numerator / total))
+            self._log_likelihoods[c] = log_likelihoods_c
+
+    def fit(self, X: Matrix, y: Vector) -> "MultinomialNB":
+        self._validate_Xy(X, y)
+        _validate_finite_matrix(X)
+        _validate_y_vector(y)
+        self._validate_counts(X)
+
+        n_samples = X.n_rows
+        self._n_features = X.n_cols
+        labels = [y[i] for i in range(len(y))]
+
+        self._classes = sorted(set(labels))
+        self._log_priors = {}
+        self._class_counts = {}
+        self._feature_counts = {}
+
+        if self.priors is not None:
+            _validate_priors(self.priors, self._classes)
+
+        for c in self._classes:
+            indices = [i for i, lbl in enumerate(labels) if lbl == c]
+            n_c = len(indices)
+            self._class_counts[c] = n_c
+
+            if self.priors is not None:
+                self._log_priors[c] = _safe_log(self.priors[c])
+            else:
+                self._log_priors[c] = _safe_log(n_c / n_samples)
+
+            counts = [0.0] * self._n_features
+            for i in indices:
+                for j in range(self._n_features):
+                    counts[j] += X.rows[i].components[j]
+            self._feature_counts[c] = counts
+
+        self._compute_log_likelihoods()
+        return self
+
+    def partial_fit(self, X: Matrix, y: Vector) -> "MultinomialNB":
+        # Incremental update. Accumulates raw feature counts then recomputes log-likelihoods. Safe to call before fit().
+        self._validate_Xy(X, y)
+        _validate_finite_matrix(X)
+        _validate_y_vector(y)
+        self._validate_counts(X)
+
+        n_features = X.n_cols
+        labels = [y[i] for i in range(len(y))]
+
+        if self._classes is None:
+            self._classes = []
+            self._log_priors = {}
+            self._log_likelihoods = {}
+            self._class_counts = {}
+            self._feature_counts = {}
+            self._n_features = n_features
+
+        if n_features != self._n_features:
+            raise ValueError(
+                f"partial_fit expects {self._n_features} features, got {n_features}"
+            )
+
+        if self.priors is not None:
+            # Defer full validation until we know the final class set, but fail fast on obviously-wrong types now.
+            if not isinstance(self.priors, dict):
+                raise TypeError(f"priors must be a dict, got {type(self.priors).__name__}")
+
+        new_classes = sorted(set(labels))
+        for c in new_classes:
+            if c not in self._classes:
+                self._classes = sorted(set(self._classes) | {c})
+                self._class_counts[c] = 0
+                self._feature_counts[c] = [0.0] * self._n_features
+
+        for i, lbl in enumerate(labels):
+            self._class_counts[lbl] += 1
+            for j in range(self._n_features):
+                self._feature_counts[lbl][j] += X.rows[i].components[j]
+
+        total = sum(self._class_counts.values())
+        if self.priors is not None:
+            _validate_priors(self.priors, self._classes)
+        for c in self._classes:
+            if self.priors is not None:
+                self._log_priors[c] = _safe_log(self.priors[c])
+            else:
+                self._log_priors[c] = _safe_log(self._class_counts[c] / total)
+
+        self._compute_log_likelihoods()
+        return self
+
+    def _log_posterior(self, x: Vector) -> Dict[float, float]:
+        scores: Dict[float, float] = {}
+        for c in self._classes:
+            log_p = self._log_priors[c]
+            for j in range(self._n_features):
+                log_p += x.components[j] * self._log_likelihoods[c][j]
+            scores[c] = log_p
+        return scores
+
+    def predict(self, X: Matrix) -> Vector:
+        self._check_is_fitted()
+        _validate_X_matrix(X, n_features=self._n_features)
+        self._validate_counts(X)
+        preds = []
+        for i in range(X.n_rows):
+            scores = self._log_posterior(X.rows[i])
+            preds.append(max(scores, key=lambda c: scores[c]))
+        return Vector(preds)
+
+    def predict_proba(self, X: Matrix) -> List[Dict[float, float]]:
+        self._check_is_fitted()
+        _validate_X_matrix(X, n_features=self._n_features)
+        self._validate_counts(X)
+        return [
+            _log_sum_exp_proba(self._log_posterior(X.rows[i]))
+            for i in range(X.n_rows)
+        ]
+
+    def predict_log_proba(self, X: Matrix) -> List[Dict[float, float]]:
+        self._check_is_fitted()
+        _validate_X_matrix(X, n_features=self._n_features)
+        self._validate_counts(X)
+        return [self._log_posterior(X.rows[i]) for i in range(X.n_rows)]
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        self._validate_Xy(X, y)
+        return accuracy_score(y, self.predict(X))
+
+    def parameters(self) -> dict:
+        self._check_is_fitted()
+        return {
+            "classes": self._classes,
+            "class_counts": self._class_counts,
+            "log_priors": self._log_priors,
+            "log_likelihoods": self._log_likelihoods,
+            "feature_counts": self._feature_counts,
+            "alpha": self.alpha,
+            "n_features": self._n_features,
+        }
+
+    def _check_is_fitted(self) -> None:
+        if self._classes is None or not self._classes:
+            raise RuntimeError(
+                "MultinomialNB is not fitted. Call fit() before predict() or score()."
+            )
+
+
+
 # BernoulliNB
 class BernoulliNB(MLModels):
 
@@ -375,7 +585,6 @@ class BernoulliNB(MLModels):
                 [1.0 if v > t else 0.0 for v in X.rows[i].components]
             )
         return Matrix(new_rows)
-
 
     def _compute_log_likelihoods(self) -> None:
         self._log_p = {}
@@ -465,6 +674,30 @@ class BernoulliNB(MLModels):
                 f"partial_fit expects {self._n_features} features, got {n_features}"
             )
 
+        new_classes = sorted(set(labels))
+        for c in new_classes:
+            if c not in self._classes:
+                self._classes = sorted(set(self._classes) | {c})
+                self._class_counts[c] = 0
+                self._feature_counts[c] = [0.0] * self._n_features
+
+        for i, lbl in enumerate(labels):
+            self._class_counts[lbl] += 1
+            for j in range(self._n_features):
+                self._feature_counts[lbl][j] += X.rows[i].components[j]
+
+        total = sum(self._class_counts.values())
+        if self.priors is not None:
+            _validate_priors(self.priors, self._classes)
+        for c in self._classes:
+            if self.priors is not None:
+                self._log_priors[c] = _safe_log(self.priors[c])
+            else:
+                self._log_priors[c] = _safe_log(self._class_counts[c] / total)
+
+        self._compute_log_likelihoods()
+        return self
+
     def _log_posterior(self, x: Vector) -> Dict[float, float]:
         scores: Dict[float, float] = {}
         for c in self._classes:
@@ -491,3 +724,51 @@ class BernoulliNB(MLModels):
             scores = self._log_posterior(X.rows[i])
             preds.append(max(scores, key=lambda c: scores[c]))
         return Vector(preds)
+
+    def predict_proba(self, X: Matrix) -> List[Dict[float, float]]:
+        self._check_is_fitted()
+        _validate_X_matrix(X)
+        X = self._binarise(X)
+        if X.n_cols != self._n_features:
+            raise ValueError(
+                f"Expected {self._n_features} features, got {X.n_cols}"
+            )
+        return [
+            _log_sum_exp_proba(self._log_posterior(X.rows[i]))
+            for i in range(X.n_rows)
+        ]
+
+    def predict_log_proba(self, X: Matrix) -> List[Dict[float, float]]:
+        self._check_is_fitted()
+        _validate_X_matrix(X)
+        X = self._binarise(X)
+        if X.n_cols != self._n_features:
+            raise ValueError(
+                f"Expected {self._n_features} features, got {X.n_cols}"
+            )
+        return [self._log_posterior(X.rows[i]) for i in range(X.n_rows)]
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        self._validate_Xy(X, y)
+        return accuracy_score(y, self.predict(X))
+
+    def parameters(self) -> dict:
+        self._check_is_fitted()
+        return {
+            "classes": self._classes,
+            "class_counts": self._class_counts,
+            "log_priors": self._log_priors,
+            "log_p": self._log_p,
+            "log_1mp": self._log_1mp,
+            "feature_counts": self._feature_counts,
+            "alpha": self.alpha,
+            "binarise_threshold": self.binarise_threshold,
+            "n_features": self._n_features,
+        }
+
+    def _check_is_fitted(self) -> None:
+        if self._classes is None or not self._classes:
+            raise RuntimeError(
+                "BernoulliNB is not fitted. Call fit() before predict() or score()."
+            )
+
