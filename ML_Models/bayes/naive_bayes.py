@@ -464,3 +464,30 @@ class BernoulliNB(MLModels):
             raise ValueError(
                 f"partial_fit expects {self._n_features} features, got {n_features}"
             )
+
+    def _log_posterior(self, x: Vector) -> Dict[float, float]:
+        scores: Dict[float, float] = {}
+        for c in self._classes:
+            log_p = self._log_priors[c]
+            for j in range(self._n_features):
+                xj = x.components[j]
+                if xj == 1.0:
+                    log_p += self._log_p[c][j]
+                else:
+                    log_p += self._log_1mp[c][j]
+            scores[c] = log_p
+        return scores
+
+    def predict(self, X: Matrix) -> Vector:
+        self._check_is_fitted()
+        _validate_X_matrix(X)
+        X = self._binarise(X)
+        if X.n_cols != self._n_features:
+            raise ValueError(
+                f"Expected {self._n_features} features, got {X.n_cols}"
+            )
+        preds = []
+        for i in range(X.n_rows):
+            scores = self._log_posterior(X.rows[i])
+            preds.append(max(scores, key=lambda c: scores[c]))
+        return Vector(preds)
