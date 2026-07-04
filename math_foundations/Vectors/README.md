@@ -1,6 +1,5 @@
 # Vector — N-Dimensional Vector Library (From Scratch)
 
-Part of the [`ml-implementation-from-scratch`](../../) curriculum —
 **Phase 1: Math Foundations**.
 
 A dependency-free, pure-Python implementation of an N-dimensional
