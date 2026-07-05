@@ -1,395 +1,340 @@
-# Matrix — Pure Python Matrix Library
+# Matrix — N x M Matrix Library (From Scratch)
+
+Part of the [`ml-implementation-from-scratch`](../../) curriculum —
+**Phase 1: Math Foundations**.
+
+A dependency-free, pure-Python N x M matrix library built directly on top
+of `Vectors.vector.Vector`. It implements matrix arithmetic, Gaussian
+elimination (row echelon form, determinant, inverse, rank),
+eigendecomposition (QR algorithm with real-Schur handling of
+complex-conjugate pairs), QR decomposition (Gram-Schmidt), and a from-scratch
+Singular Value Decomposition built on the eigendecomposition of `AᵀA`.
+NumPy is used only in the test suite, as a correctness oracle.
+
+---
 
 ## Overview
 
-`matrix.py` is a pure Python implementation of an m×n matrix with full linear algebra support, built from scratch as **Project 2** of the *Engineering Redemption Arc* — a structured 60-project ML engineering curriculum covering mathematical foundations through production machine learning systems.
+`Matrix` wraps a list of `Vector` rows and implements:
 
-The module provides a `Matrix` class that builds directly on the `Vector` class from Project 1. It covers arithmetic operations, decompositions (LU via row reduction, QR, SVD), eigenvalue computation, matrix inversion, diagonalization, and a practical SVD-based image compression demo — all without NumPy.
+- Full container protocol (`len`, indexing, iteration, equality, `copy`)
+- Arithmetic operators: `+`, `-`, `*` (scalar, matrix-vector, matrix-matrix
+  via `*` or `@`), `/`, unary `-`, integer matrix power `**`
+- Structural utilities: `transpose`, `columns`, `diagonal`,
+  `is_symmetric`, `frobenius_norm`, `zeros`, `identity`
+- Gaussian elimination family: `row_echelon_form`, `rank`, `determinant`,
+  `inverse`, `matvec`
+- Eigendecomposition: `trace`, `characteristic_poly`, `qr_decompose`,
+  `qr_algorithm`, `eigenvalues`, `eigenvectors`, `power_iteration`,
+  `diagonalize`, `spectral_theorem`
+- SVD: `svd`, `reconstruct`, `low_rank_approx`, `compression_ratio`,
+  `image_compression_demo`
+
+This single file intentionally covers what would later be three separate
+modules (Matrix operations / Eigenvalues / SVD) — the section headers in
+`matrix.py` map cleanly onto that split if it's ever needed.
 
 ---
 
 ## Project Structure
 
 ```
-├── Vectors/
-│   └── vector.py          # Vector primitive (Project 1 — required dependency)
+math_foundations/
 └── Matrix/
-    └── matrix.py          # Matrix class — all logic lives here
+    ├── matrix.py              # Matrix implementation (this module)
+    ├── tests/
+    │   └── test_matrix.py     # Pytest suite (NumPy cross-checked)
+    └── README.md
 ```
 
-`matrix.py` dynamically resolves its parent directory at runtime to import `Vector`. Both files must be present in this folder layout for the import to succeed.
+`matrix.py` imports `Vector` from the sibling `Vectors` module
+(`math_foundations/Vectors/vector.py`) via a relative `sys.path` insert —
+both folders must live side-by-side under `math_foundations/`.
 
 ---
 
 ## Dependencies
 
-| Requirement | Detail |
+| Component | Requires |
 |---|---|
-| Python | 3.10+ (uses `list[list]` type hint in `__init__`) |
-| `math`, `os`, `sys`, `random`, `cmath` | Standard library only |
-| `Vectors/vector.py` | Project 1 — local dependency |
+| `matrix.py` | Python 3.8+ standard library only (`math`, `cmath`, `random`, `logging`, `typing`) + `Vectors.vector.Vector` (sibling module, no NumPy) |
+| `tests/test_matrix.py` | `pytest`, `numpy` (test-only, for regression checks) |
 
-No `pip install` required.
+Install test dependencies:
 
----
+```bash
+pip install pytest numpy
+```
 
-## Installation
+Run the suite from `math_foundations/Matrix/`:
 
-Ensure the folder layout above is intact, then import:
-
-```python
-import sys
-sys.path.insert(0, "/path/to/")
-
-from Matrix.matrix import Matrix
-from Vectors.vector import Vector
+```bash
+pytest tests/test_matrix.py -v
 ```
 
 ---
 
-## Usage
+## Module Reference
 
-### Construction
+### Exceptions
 
-```python
-A = Matrix([[1, 2, 3],
-            [4, 5, 6],
-            [7, 8, 9]])
-```
+| Exception | Base | Raised when |
+|---|---|---|
+| `MatrixError` | `Exception` | Base class for all matrix errors |
+| `DimensionMismatchError` | `MatrixError`, `ValueError` | Two matrices (or a matrix and vector) have incompatible shapes |
+| `SingularMatrixError` | `MatrixError`, `ValueError` | An operation (inverse, diagonalize) requires a non-singular matrix |
+| `NotSquareError` | `MatrixError`, `ValueError` | An operation requires a square matrix |
 
-Each row must have the same length. Rows are stored internally as `Vector` objects. An optional `tol` parameter (default `1e-10`) controls the numerical zero threshold used throughout the class.
-
-```python
-A = Matrix([[1, 2], [3, 4]], tol=1e-8)
-```
-
----
-
-### Properties and Inspection
+### Constructor
 
 ```python
-A.shape          # (n_rows, n_cols)
-A.n_rows         # int
-A.n_cols         # int
-A[0]             # first row as Vector
-A[0][1]          # element at row 0, col 1
-
-for row in A:    # iterate rows as Vectors
-    print(row)
+Matrix(data: Sequence[Sequence[Number]], tol: float = 1e-10)
 ```
 
----
+- Rows are validated by delegating to `Vector` (type errors on non-numeric
+  or boolean entries propagate from there).
+- Raises `ValueError` if rows have inconsistent lengths.
+- An empty sequence produces a legal `0x0` matrix.
+- `tol` is stored per-instance and used as the default numerical
+  tolerance (pivoting, singularity checks, convergence) throughout that
+  matrix's methods.
+
+### Properties & container protocol
+
+| Member | Behavior |
+|---|---|
+| `m.shape` | `(n_rows, n_cols)` |
+| `m.is_square` | `True` if square and non-empty |
+| `len(m)` | Number of rows |
+| `m[i]` | Row `i` as a `Vector` (or a `list[Vector]` for slices) |
+| `iter(m)` | Iterates over row `Vector`s |
+| `m1 == m2` | Shape + element-wise equality within `min(m1.tol, m2.tol)` |
+| `repr(m)` | Multi-line `Matrix([...])` |
+| `m.copy()` | Deep-enough copy (new rows, new component lists) |
+| `hash(m)` | Explicitly unhashable (mutable via row access) |
 
 ### Arithmetic
 
-```python
-A + B            # element-wise addition
-A - B            # element-wise subtraction
-A * B            # matrix multiplication
-A * 3            # scalar multiplication
-3 * A            # scalar multiplication (reversed)
-A / 2.0          # scalar division
-A == B           # approximate equality (within tol)
-```
+| Operation | Supports | Notes |
+|---|---|---|
+| `m1 + m2`, `m + scalar`, `scalar + m` | Matrix, scalar | `DimensionMismatchError` on shape mismatch |
+| `m1 - m2`, `m - scalar`, `scalar - m` | Matrix, scalar | Same mismatch behavior |
+| `m * scalar` | Scalar | Element-wise scale |
+| `m * vector` | `Vector` | Delegates to `matvec` (matrix-vector product) |
+| `m1 * m2`, `m1 @ m2` | Matrix | Matrix product; `@` is an alias for `*`. `DimensionMismatchError` if inner dimensions disagree |
+| `m / scalar` | Scalar | `ZeroDivisionError` on `0.0`, `TypeError` on non-numeric |
+| `-m` | — | Element-wise negation |
+| `m ** n` | Non-negative or negative `int` | Repeated-squaring for `n >= 0`; `inverse() ** abs(n)` for `n < 0`. Requires square; `TypeError` if `n` isn't an `int` |
 
-Shape mismatches raise `ValueError`. Division by zero raises `ZeroDivisionError`.
-
----
-
-### Matrix–Vector Multiply
+### Structural utilities
 
 ```python
-v = Vector([1, 0, 0])
-result = A * v         # dispatches to matvec(), returns a Vector
-result = A.matvec(v)   # explicit call
+m.transpose() -> Matrix
+m.columns() -> List[Vector]
+m.diagonal() -> Matrix              # square matrix built from the leading diagonal
+m.is_symmetric() -> bool            # equals its own transpose, within tol
+m.frobenius_norm() -> float
+Matrix.zeros(n_rows, n_cols) -> Matrix
+Matrix.identity(n) -> Matrix
+m.element_wise(func) -> Matrix
+m.element_wise_with(other, func) -> Matrix
 ```
 
----
-
-### Element-wise Transformations
+### Gaussian elimination family
 
 ```python
-A.element_wise(lambda x: x ** 2)
-A.element_wise_with(B, lambda a, b: a + b)
+m.row_echelon_form() -> Matrix
 ```
-
----
-
-### Transpose and Copy
+Non-reduced REF via Gaussian elimination with partial pivoting. Raises `ValueError` if the matrix contains NaN/Inf.
 
 ```python
-At = A.transpose()
-A2 = A.copy()
+m.rank() -> int
 ```
-
----
-
-### Class Methods — Constructors
+Number of nonzero pivot rows in REF.
 
 ```python
-Matrix.zeros(3, 4)    # 3×4 zero matrix
-Matrix.identity(3)    # 3×3 identity matrix
+m.determinant(tol: float | None = None) -> float
 ```
-
----
-
-### Row Echelon Form
+Via Gaussian elimination with partial pivoting and sign tracking on row swaps. Requires square.
 
 ```python
-R = A.row_echelon_form()
+m.inverse() -> Matrix
 ```
-
-Produces upper triangular form via Gaussian elimination with partial pivoting. Does not modify `A` in place.
-
----
-
-### Determinant
+Gauss-Jordan elimination on `[A | I]` in a single O(n³) sweep. Raises `SingularMatrixError` if no pivot is found in some column.
 
 ```python
-d = A.determinant()    # float; 0.0 if singular
+m.matvec(vec: Vector) -> Vector
 ```
+Matrix-vector product. Raises `TypeError` if `vec` isn't a `Vector`, `DimensionMismatchError` on shape mismatch.
 
-Square matrices only. Uses Gaussian elimination with swap tracking.
-
----
-
-### Inverse
+### Eigendecomposition
 
 ```python
-A_inv = A.inverse()
+m.trace() -> Number
+m.characteristic_poly() -> List[float]
 ```
-
-Uses Gauss–Jordan elimination on the augmented matrix `[A | I]`. Raises `ValueError` if the matrix is singular.
-
----
-
-### Trace
+`characteristic_poly` uses Faddeev-LeVerrier, valid for any square size (not just 2x2/3x3). Returns `[1, c_1, ..., c_n]` for `det(xI - A) = x^n + c_1 x^(n-1) + ... + c_n`.
 
 ```python
-t = A.trace()    # sum of diagonal elements
+m.qr_decompose() -> Tuple[Matrix, Matrix]
 ```
-
-Square matrices only.
-
----
-
-### Columns
+Classical Gram-Schmidt `A = Q R`. Rank-deficient columns yield a zero column in `Q` and zero diagonal entry in `R`.
 
 ```python
-cols = A.columns()    # list of Vector objects, one per column
+m.qr_algorithm(max_iter: int = 500, tol: float | None = None) -> List[EigenValue]
+m.eigenvalues(max_iter: int = 500, tol: float | None = None) -> List[EigenValue]
 ```
-
----
-
-### Eigenvalues
+`eigenvalues` special-cases 1x1/2x2 with a closed-form quadratic solution and falls back to the unshifted QR algorithm (`qr_algorithm`) otherwise. Correctly returns complex-conjugate pairs (e.g. for rotation matrices) via 2x2 real-Schur block extraction rather than discarding imaginary parts.
 
 ```python
-evals = A.eigenvalues()    # list of floats (real eigenvalues)
+m.eigenvectors(lam: float | complex) -> List[Vector]
 ```
-
-Delegates to the QR algorithm. Square matrices only.
-
----
-
-### Eigenvectors
+Eigenspace basis for a given eigenvalue via REF + back substitution over free variables. Raises `NotImplementedError` for eigenvalues with non-negligible imaginary part (complex eigenvectors are out of scope for this real-valued library).
 
 ```python
-vecs = A.eigenvectors(lam)    # list of unit Vector objects for eigenvalue lam
+m.power_iteration(max_iter=1000, tol=1e-8, seed=None, initial=None) -> Tuple[float, Vector]
 ```
-
-Uses row echelon form to find the null space of `(A - λI)`. Returns an empty list if no eigenvector exists.
-
----
-
-### Power Iteration
+Dominant eigenvalue/eigenvector via power iteration. Raises `ValueError` for the zero matrix or a vanishing iterate. Only converges reliably when a single real eigenvalue strictly dominates in magnitude.
 
 ```python
-lam, v = A.power_iteration(max_iter=1000, tol=1e-8)
+m.diagonalize() -> Tuple[Matrix, Matrix]
 ```
-
-Returns the dominant eigenvalue and its corresponding unit eigenvector. Starts from a random nonzero vector. Prints a convergence warning if `max_iter` is reached without meeting `tol`.
-
----
-
-### Characteristic Polynomial
+`A = P D P⁻¹`. Raises `NotImplementedError` for complex eigenvalues, `SingularMatrixError` if eigenvectors don't span the space.
 
 ```python
-coeffs = A.characteristic_poly()    # list of float coefficients
+m.spectral_theorem() -> dict
 ```
-
-Implemented only for 2×2 and 3×3 matrices. Raises `NotImplementedError` for larger sizes.
-
----
-
-### QR Decomposition
-
-```python
-Q, R = A.qr_decompose()
-```
-
-Uses Modified Gram–Schmidt orthogonalization. Returns orthogonal `Q` and upper triangular `R`, both as `Matrix` objects. Handles rank-deficient columns by setting the corresponding Q column to zero.
-
----
-
-### QR Algorithm (Eigenvalue Solver)
-
-```python
-evals = A.qr_algorithm(max_iter=100, tol=1e-10)
-```
-
-Iteratively applies QR decomposition until the matrix converges to (approximately) upper triangular form. Returns the diagonal entries as eigenvalues. Called internally by `eigenvalues()`.
-
----
-
-### Diagonalization
-
-```python
-P, D = A.diagonalize()
-```
-
-Returns `P` (matrix of eigenvectors as columns) and `D` (diagonal matrix of eigenvalues) such that `A = P D P⁻¹`. Raises `ValueError` if the matrix is not diagonalizable. Complex eigenvalues are not supported and raise `NotImplementedError`.
-
----
-
-### Spectral Theorem
-
-```python
-result = A.spectral_theorem()
-```
-
-Returns a dict verifying three properties of symmetric matrices:
-
-```python
-{
-    "symmetric": True,
-    "real_eigenvalues": True,
-    "orthogonal_eigenvectors": True
-}
-```
-
----
+Checks `{"symmetric", "real_eigenvalues", "orthogonal_eigenvectors"}` in sequence, short-circuiting (remaining keys `False`) as soon as a check fails.
 
 ### SVD
 
 ```python
-U, Sigma, Vt = A.svd()
+m.svd() -> Tuple[Matrix, Matrix, Matrix]
 ```
-
-Computes the Singular Value Decomposition via eigendecomposition of `AᵀA`. Returns:
-
-- `U` — left singular vectors (m×k Matrix)
-- `Sigma` — diagonal singular values (m×n Matrix)
-- `Vt` — right singular vectors transposed (k×n Matrix)
-
-#### Reconstruction
+Thin (economy) SVD `A = U Σ Vᵀ` with `k = min(m, n)`, built from the eigendecomposition of `AᵀA` (always real, symmetric, PSD). Singular vectors are re-orthonormalized via Gram-Schmidt to guard against repeated/near-repeated singular values.
 
 ```python
-A_reconstructed = Matrix.reconstruct(U, Sigma, Vt)
+Matrix.reconstruct(U, Sigma, Vt) -> Matrix
+m.low_rank_approx(k, U=None, Sigma=None, Vt=None) -> Matrix
+m.compression_ratio(k) -> dict
+Matrix.image_compression_demo() -> None
 ```
-
-#### Low-Rank Approximation
-
-```python
-A_k = A.low_rank_approx(k)                          # recomputes SVD internally
-A_k = A.low_rank_approx(k, U=U, Sigma=Sigma, Vt=Vt) # reuses precomputed SVD
-```
-
-Retains only the top `k` singular values.
-
-#### Compression Ratio
-
-```python
-stats = A.compression_ratio(k)
-# {
-#     "ratio": float,
-#     "original_elements": int,
-#     "compressed_elements": int,
-#     "space_saved_percent": float
-# }
-```
-
----
-
-### Image Compression Demo
-
-```python
-Matrix.image_compression_demo()
-```
-
-A class method that constructs a synthetic 10×10 grayscale "image" (a cross pattern), computes its SVD, and prints rank-k reconstructions for `k ∈ {1, 2, 3, 5, max_rank}` alongside compression ratios and Frobenius reconstruction errors. No external image library required.
+`low_rank_approx` gives the best rank-`k` approximation (Eckart-Young); `compression_ratio` reports storage stats (`ratio`, `original_elements`, `compressed_elements`, `space_saved_percent`) for a rank-`k` SVD; `image_compression_demo` prints an end-to-end walkthrough on a toy 10x10 image.
 
 ---
 
 ## Example Session
 
 ```python
-from Matrix.matrix import Matrix
-from Vectors.vector import Vector
+from matrix import Matrix, SingularMatrixError, NotSquareError
 
-A = Matrix([[4, 3], [6, 3]])
+A = Matrix([[2, 0], [0, 3]])
+A.determinant()                # 6.0
+A.eigenvalues()                 # [3.0, 2.0]
 
-print(A.shape)           # (2, 2)
-print(A.determinant())   # -6.0
-print(A.trace())         # 7
+B = Matrix([[1, 2], [3, 4]])
+B.transpose().rows[0].components   # [1, 3]
+B.inverse() * B                     # ~= Matrix.identity(2)
 
-A_inv = A.inverse()
-I = A * A_inv
-print(I)                 # approximately identity
+C = Matrix([[4, 1], [2, 3]])
+lam, v = C.power_iteration(seed=0)
+lam                                  # dominant eigenvalue (~5.0)
 
-evals = A.eigenvalues()
-print(evals)             # [6.0, 1.0] (approx)
+Q, R = B.qr_decompose()             # B == Q * R
 
-Q, R = A.qr_decompose()
-U, Sigma, Vt = A.svd()
-A_approx = A.low_rank_approx(1)
+U, Sigma, Vt = B.svd()
+Matrix.reconstruct(U, Sigma, Vt)    # ~= B
 
-Matrix.image_compression_demo()
+try:
+    Matrix([[1, 2], [2, 4]]).inverse()
+except SingularMatrixError as e:
+    print(e)                        # Matrix is singular, no inverse exists.
+
+try:
+    Matrix([[1, 2, 3]]).determinant()
+except NotSquareError as e:
+    print(e)                        # Determinant requires a square matrix, got shape (1, 3)
 ```
-
----
-
-## Error Reference
-
-| Situation | Exception |
-|---|---|
-| Rows of unequal length | `ValueError` |
-| Shape mismatch in `+`, `-` | `ValueError` |
-| Dimension mismatch in `*` | `ValueError` |
-| Non-scalar passed to `/` | `TypeError` |
-| Scalar division by zero | `ZeroDivisionError` |
-| Determinant/trace/eigenvalues on non-square | `ValueError` |
-| Inverse of singular matrix | `ValueError` |
-| `matvec` dimension mismatch | `ValueError` |
-| Power iteration on zero matrix | `ValueError` |
-| Eigenvector vanishes in power iteration | `ValueError` |
-| `characteristic_poly` on matrix larger than 3×3 | `NotImplementedError` |
-| `diagonalize` with complex eigenvalues | `NotImplementedError` |
-| Matrix not diagonalizable | `ValueError` |
-| Invalid `k` in `compression_ratio` | `ValueError` |
 
 ---
 
 ## Design Notes
 
-- **Built on `Vector`:** Every row is a `Vector` instance, so all Vector arithmetic (`+`, `-`, `*`, `.dot()`, `.norm()`) is reused directly without reimplementation.
-- **Tolerance parameter:** `tol` is set at construction and used consistently across all numerical comparisons (pivoting, singular checks, convergence). Override per instance when working with ill-conditioned matrices.
-- **No NumPy:** All decompositions — row reduction, QR via Gram–Schmidt, SVD via eigendecomposition of AᵀA — are implemented from first principles.
-- **QR algorithm limitation:** Convergence to real eigenvalues only. Complex spectra are not supported.
-- **SVD via AᵀA:** This is numerically less stable than Householder-based SVD for nearly singular matrices but is pedagogically direct and sufficient for the curriculum's purposes.
-- **`__eq__` uses `tol`:** Floating-point matrix equality is approximate, using the stricter of the two matrices' tolerances.
+- **Built on `Vector`, not a raw list-of-lists.** Every row is a
+  `Vectors.vector.Vector`, so row-level operations (`dot`, `norm`,
+  arithmetic) reuse that module's tested, validated implementation
+  instead of duplicating it.
+- **NaN/Inf are explicitly rejected in pivot-driven algorithms**, unlike
+  `Vector`, which lets them propagate. Gaussian elimination, QR, and the
+  eigensolvers all decide pivots via `abs(x) > tol` comparisons; since any
+  comparison against `NaN` is `False` in IEEE-754, a `NaN` entry would
+  silently be treated as "already zero" and produce a wrong, non-NaN
+  answer instead of a clearly flagged failure. `_require_finite()` guards
+  every one of these entry points.
+- **Unshifted QR algorithm** (`qr_algorithm`) is used for eigenvalues of
+  matrices larger than 2x2. It is correct but converges slowly for
+  eigenvalues of similar magnitude and is not recommended for large or
+  ill-conditioned matrices — there is no deflation or shift strategy, by
+  design, to keep the "from scratch" implementation tractable. 1x1 and
+  2x2 matrices instead get an exact closed-form solution.
+- **Real Schur handling of complex eigenvalues.** The QR algorithm
+  converges to a quasi-upper-triangular matrix with 2x2 blocks on the
+  diagonal wherever a pair of complex-conjugate eigenvalues exists (e.g.
+  rotation matrices). Those blocks are solved analytically via the
+  quadratic formula (`_solve_2x2_eigs`) rather than being misread as two
+  real eigenvalues.
+- **Eigenvectors are real-only.** Because `Vector`/`Matrix` store only
+  `int`/`float` components, `eigenvectors()` raises `NotImplementedError`
+  for any eigenvalue with non-negligible imaginary part, even though
+  `eigenvalues()` correctly computes complex results. This is a
+  documented scope boundary, not a bug.
+- **Magnitude-scaled tolerance in `eigenvectors`.** The pivot/zero
+  tolerance used when solving `(A - λI)x = 0` is scaled by the matrix's
+  own magnitude (`self.tol * max(1, max|A_ij|)`) rather than used as a
+  raw absolute value, since floating-point error in `A - λI` scales with
+  the matrix's magnitude — this matters for large-magnitude matrices such
+  as `AᵀA` inside `svd()`.
+- **SVD singular vectors are not unique under repeated singular values.**
+  `svd()` returns the first eigenvector found per eigenvalue of `AᵀA`,
+  then re-orthonormalizes via Gram-Schmidt. This matches the
+  mathematical fact that singular vectors for repeated singular values
+  are only defined up to an orthogonal rotation within their eigenspace
+  — not a limitation unique to this implementation.
+- **`**` (matrix power) and `/` reject booleans** the same way `Vector`
+  does, and `@` is a plain alias for `*` rather than a separate
+  implementation, keeping matrix-multiply semantics in one place.
+- **Per-instance `tol`.** Unlike `Vector` (which takes `tol` per-call),
+  `Matrix` stores a default tolerance at construction time, since nearly
+  every non-trivial method (pivoting, singularity, convergence) needs a
+  consistent tolerance across a multi-step algorithm.
+
+---
+
+## Test Coverage
+
+`tests/test_matrix.py` cross-checks numeric correctness against NumPy
+(`np.linalg.det`, `np.linalg.inv`, `np.linalg.eig`, `np.linalg.svd`,
+matrix multiplication, etc.) and organizes cases by the same sections as
+the module: construction, container protocol, arithmetic, structural
+utilities, Gaussian elimination (REF/rank/determinant/inverse/matvec),
+eigendecomposition (QR decompose/algorithm, eigenvalues, eigenvectors,
+power iteration, diagonalize, spectral theorem), and SVD (svd,
+reconstruct, low-rank approximation, compression ratio).
+
+Run with verbose output:
+
+```bash
+pytest tests/test_matrix.py -v
+```
 
 ---
 
 ## Roadmap Context
 
-This module is **Project 2 of 60** in the Engineering Redemption Arc curriculum. It depends on:
-
-- **Project 1** — `Vector` (direct dependency; rows are Vectors)
-
-And it underpins:
-
-- **Projects 3–4** — Eigenvalues, SVD (both fully implemented here as precursors)
-- **Project 5** — Probability and statistics (covariance matrices)
-- **Projects 11+** — ML model implementations (weight matrices, gradient computation, PCA)
-
-The SVD and low-rank approximation methods implemented here are the direct algorithmic backbone of PCA and dimensionality reduction in later phases.
+`matrix.py` is the second module in **Phase 1: Math Foundations**,
+building directly on `Vectors/vector.py`. It carries forward the same
+conventions (explicit exception hierarchy, `tol`-parameterized numerical
+safety, NumPy-only-in-tests policy, full docstring + type-hint coverage)
+while introducing matrix-scale concerns — pivoting, convergence,
+singularity — ahead of the from-scratch algorithm implementations (PCA,
+linear regression, etc.) that will depend on it.
