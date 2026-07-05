@@ -1,450 +1,354 @@
-# Probability — Pure Python Probability & Statistics Library
+# Probability — Distributions, Descriptive Stats & Hypothesis Testing (From Scratch)
+
+**Phase 1: Math Foundations**.
+
+A dependency-free, pure-Python probability and statistics library:
+descriptive statistics (including covariance/correlation matrices via the
+`Matrix` module), discrete and continuous probability distributions, the
+special functions that back their exact CDFs, and classical frequentist
+hypothesis tests built on top of all three. SciPy/NumPy are used only in
+the test suite, as correctness oracles.
+
+---
 
 ## Overview
 
-The `Probability/` package is a pure Python implementation of probability distributions, descriptive statistics, special functions, and hypothesis tests — built from scratch as part of the *Engineering Redemption Arc*, a structured 60-project ML engineering curriculum in the [`ml-implementation-from-scratch`](https://github.com/) repository.
+The package is organized into five files, each building on the ones
+before it:
 
-The package covers the statistical foundation required before implementing ML algorithms: summary statistics, continuous and discrete distributions, numerical special functions, and inferential tests. All computations use Python's standard library only — no NumPy, SciPy, or Pandas.
+| File | Provides |
+|---|---|
+| `special_functions.py` | Regularized incomplete beta (`betainc`) and gamma (`gammainc`) functions — the numerical backbone for exact CDFs |
+| `distributions.py` | `Distribution` — the abstract base class shared by every distribution |
+| `discrete.py` | `BernoulliDistribution`, `BinomialDistribution`, `PoissonDistribution` |
+| `continuous.py` | `NormalDistribution`, `TDistribution`, `Chi2Distribution`, `FDistribution`, `BetaDistribution`, `GammaDistribution` |
+| `descriptive_stats.py` | `DescriptiveStats` — single-dataset summaries plus covariance/correlation (matrices via `Matrix`) |
+| `hypothesis_tests.py` | Free functions: t-tests, z-test, confidence intervals, chi-squared tests, one-way ANOVA |
 
-The `Matrix` class from the `Matrix/` package is used for covariance and correlation matrix construction.
+Every distribution exposes the same interface (`mean`, `variance`, `std`,
+`sample`, `summary`, plus `pmf`/`pdf`, `cdf`, `sf`, `ppf` where
+mathematically defined), so downstream code — including
+`hypothesis_tests.py` — can treat any distribution polymorphically.
 
 ---
 
 ## Project Structure
 
 ```
-ml-implementation-from-scratch/
-├── Matrix/
-│   └── matrix.py                  # Matrix primitive (required dependency)
-├── Vectors/
-│   └── vector.py                  # Vector primitive (transitive dependency)
+math_foundations/
 └── Probability/
-    ├── distributions.py           # Abstract base class for all distributions
-    ├── discrete.py                # Bernoulli, Binomial, Poisson
-    ├── continuous.py              # Normal, T, Chi-squared, F, Beta, Gamma
-    ├── special_functions.py       # Regularized incomplete Beta and Gamma functions
-    ├── descriptive_stats.py       # DescriptiveStats class + covariance/correlation matrices
-    └── hypothesis_tests.py        # t-tests, chi-square tests, one-way ANOVA
+    ├── special_functions.py
+    ├── distributions.py
+    ├── discrete.py
+    ├── continuous.py
+    ├── descriptive_stats.py
+    ├── hypothesis_tests.py
+    ├── tests/
+    │   ├── test_special_functions.py
+    │   ├── test_discrete.py
+    │   ├── test_continuous.py
+    │   ├── test_descriptive_stats.py
+    │   └── test_hypothesis_tests.py
+    └── README.md
 ```
 
-Each file's internal path resolution (`sys.path.insert`) assumes this layout. Moving files out of the `Probability/` directory will break imports.
+`descriptive_stats.py` imports `Matrix` from the sibling `Matrix` module
+(`math_foundations/Matrix/matrix.py`); `discrete.py`/`continuous.py`
+import `Distribution` from `distributions.py` and `betainc`/`gammainc`
+from `special_functions.py`; `hypothesis_tests.py` imports from
+`descriptive_stats.py` and `continuous.py` — all via relative `sys.path`
+inserts. `Vectors`, `Matrix`, and `Probability` must live side-by-side
+under `math_foundations/`.
 
 ---
 
 ## Dependencies
 
-| Requirement | Detail |
+| Component | Requires |
 |---|---|
-| Python | 3.10+ |
-| `math`, `random`, `os`, `sys`, `cmath`, `collections` | Standard library only |
-| `Matrix/matrix.py` | Local dependency — covariance/correlation matrices |
-| `Vectors/vector.py` | Transitive dependency via `matrix.py` |
+| Library files | Python 3.8+ standard library only (`math`, `random`, `warnings`, `collections`, `abc`, `typing`) + `Matrix.matrix.Matrix` (sibling module) |
+| `tests/*.py` | `pytest`, `numpy`, `scipy` (test-only, for regression checks) |
 
-No `pip install` required.
+Install test dependencies:
 
----
+```bash
+pip install pytest numpy scipy
+```
 
-## Installation
+Run the full suite from `math_foundations/Probability/`:
 
-Ensure the folder layout above is intact. Run scripts from the repository root, or insert the root into `sys.path`:
+```bash
+pytest tests/ -v
+```
 
-```python
-import sys
-sys.path.insert(0, "/path/to/ml-implementation-from-scratch")
+Or an individual file:
 
-from Probability.descriptive_stats import DescriptiveStats
-from Probability.continuous import NormalDistribution
-from Probability.discrete import BinomialDistribution
-from Probability.hypothesis_tests import ttest_1samp
-from Probability.special_functions import betainc, gammainc
+```bash
+pytest tests/test_continuous.py -v
 ```
 
 ---
 
 ## Module Reference
 
----
-
-### `distributions.py` — Abstract Base Class
-
-`Distribution` is the base class for all discrete and continuous distribution classes. It defines a shared interface:
+### `special_functions.py`
 
 ```python
-dist.mean()       # float
-dist.variance()   # float
-dist.std()        # float — default: sqrt(variance())
-dist.sample(n)    # list of n samples
-dist.summary()    # formatted string: name, mean, variance, std
+betainc(a: float, b: float, x: float, max_iter=200, tol=1e-15) -> float
 ```
-
-Subclasses must implement `mean()`, `variance()`, and `sample()`. All other methods have default implementations.
-
----
-
-### `discrete.py` — Discrete Distributions
-
-All discrete distributions inherit from `Distribution`.
-
-#### `BinomialDistribution(n, p)`
-
-Models the number of successes in `n` independent Bernoulli trials with success probability `p`.
+Regularized incomplete beta function `I_x(a, b)`, via Lentz's modified continued fraction (Numerical Recipes §6.4), using the symmetry relation `I_x(a,b) = 1 - I_{1-x}(b,a)` to guarantee fast convergence regardless of which side of `x < (a+1)/(a+b+2)` the input falls on.
 
 ```python
-dist = BinomialDistribution(n=10, p=0.3)
-dist.pmf(k=3)        # P(X = 3)
-dist.cdf(x=4)        # P(X <= 4)
-dist.mean()          # n * p
-dist.variance()      # n * p * (1 - p)
-dist.sample(100)     # list of 100 samples
+betaincc(a, b, x, max_iter=200, tol=1e-15) -> float
 ```
-
-`k` must be an integer. Returns `0.0` for `k` outside `[0, n]`.
-
-#### `BernoulliDistribution(p)`
-
-Special case of Binomial with `n=1`. Outcomes are `0` or `1`.
+Complement `1 - I_x(a, b)`, computed directly (via the symmetry relation) rather than by subtracting `betainc` from 1, for better accuracy near 0/1.
 
 ```python
-dist = BernoulliDistribution(p=0.6)
-dist.pmf(1)      # 0.6
-dist.pmf(0)      # 0.4
-dist.cdf(0.5)    # 0.4
-dist.sample(10)  # list of 0s and 1s
+gammainc(a: float, x: float, max_iter=300, tol=1e-12) -> float
+gammaincc(a, x, max_iter=300, tol=1e-12) -> float
 ```
+Regularized lower/upper incomplete gamma functions `P(a, x)` / `Q(a, x)`, via Numerical Recipes §6.2: a power series for `x < a + 1`, a continued fraction for `x >= a + 1`.
 
-#### `PoissonDistribution(lam)`
+All four raise `TypeError` for non-numeric or boolean inputs, and `ValueError` for non-positive/non-finite/NaN shape parameters or an `x` outside its valid range (`[0, 1]` for beta, `>= 0` for gamma). Non-convergence logs a warning rather than raising, since the result is still the best available approximation.
 
-Models the number of events in a fixed interval given average rate `lam`.
+### `distributions.py`
 
 ```python
-dist = PoissonDistribution(lam=4.5)
-dist.pmf(k=3)    # P(X = 3)
-dist.cdf(x=5)    # P(X <= 5)
-dist.mean()      # lam
-dist.variance()  # lam
-dist.sample(50)
+class Distribution(ABC):
+    def mean(self) -> float                                    # abstract
+    def variance(self) -> float                                # abstract
+    def std(self) -> float                                      # sqrt(variance())
+    def sample(self, num_samples=1, seed=None) -> List[float]  # abstract
+    def summary(self) -> str                                    # "ClassName: mean=..., variance=..., std=..."
 ```
+The shared base class. `std()` is deliberately not meant to be overridden independently of `variance()`, to avoid mean/variance/std inconsistency bugs.
 
-`k` must be an integer. `lam=0` is handled as a degenerate distribution at zero.
+### `discrete.py`
 
----
+| Class | Constructor | Notes |
+|---|---|---|
+| `BernoulliDistribution(p)` | `p` in `[0, 1]` | `pmf`, `cdf`, `sf`, `ppf`, `sample` all closed-form |
+| `BinomialDistribution(n, p)` | `n` non-negative int, `p` in `[0, 1]` | `cdf`/`ppf` via direct summation, O(k); `sample` simulates `n` Bernoulli trials per draw |
+| `PoissonDistribution(lam)` | `lam >= 0`, finite | `pmf` computed in log-space to avoid overflow; `sample` uses Knuth's algorithm, decomposed into safe-sized chunks above `lam=20` to avoid the `exp(-lam)` underflow that would otherwise hang the loop |
 
-### `continuous.py` — Continuous Distributions
+All three reject `bool` and non-finite/NaN parameters explicitly.
 
-Continuous distributions do **not** inherit from `Distribution`; they implement their own `pdf`, `cdf`, `sf`, `ppf`, `mean`, `variance`, and `std` methods directly.
+### `continuous.py`
 
-#### `NormalDistribution(mu, sigma)`
+| Class | Constructor | Notes |
+|---|---|---|
+| `NormalDistribution(mu=0, sigma=1)` | `sigma > 0` | `cdf`/`sf` via `erf`/`erfc`; `ppf` via the Acklam algorithm + one Halley refinement step (~machine precision) |
+| `TDistribution(df)` | `df > 0` | `cdf` via `betainc`; `ppf` via bracketing + bisection (no closed form); `mean`/`variance` raise `ValueError` where undefined (`df <= 1` / `df <= 1`); also exposes `p_value(t, alternative)` |
+| `Chi2Distribution(df)` | `df > 0` | `cdf` via `gammainc`; `ppf` via bracketing + bisection; `sample` via the Chi2 = Gamma(df/2, rate=1/2) relationship |
+| `FDistribution(df1, df2)` | both `> 0` | `cdf` via `betainc`; `mean`/`variance` raise `ValueError` where undefined (`df2 <= 2` / `df2 <= 4`); `sample` via the ratio-of-scaled-Chi2s construction |
+| `BetaDistribution(alpha, beta)` | both `> 0` | `cdf` **exact** via `betainc` (not trapezoidal integration); `sample` via Jöhnk's rejection method (acceptance degrades for large shape parameters — a documented limitation) |
+| `GammaDistribution(alpha, beta)` | both `> 0`, shape-rate parameterization | `cdf` **exact** via `gammainc`; `sample` via Marsaglia-Tsang, boosted for `alpha < 1` |
+
+`Chi2`/`Beta`/`Gamma` CDFs were specifically rewritten to use the exact incomplete beta/gamma functions instead of numerical (trapezoidal) integration — both far faster and more accurate; regression tests (`test_cdf_exact_matches_scipy`, `test_cdf_speed_is_fast`) guard against regressing to the old approach.
+
+### `descriptive_stats.py`
 
 ```python
-dist = NormalDistribution(mu=0.0, sigma=1.0)
-dist.pdf(x)      # probability density
-dist.cdf(x)      # P(X <= x) via math.erf
-dist.sf(x)       # 1 - cdf(x)
-dist.ppf(p)      # inverse CDF (quantile) — Rational approximation (Peter Acklam's method)
-dist.mean()      # mu
-dist.variance()  # sigma^2
-dist.std()       # sigma
+class DescriptiveStats:
+    def __init__(self, data: Sequence[Number])
 ```
+Validates non-empty, numeric, non-boolean, non-NaN input; stores a sorted copy (`self.data`) alongside the original order (`self._raw`).
 
-`sigma` must be positive. `ppf` requires `p` strictly in `(0, 1)`.
+**Central tendency:** `mean()`, `median()` (= `percentile(50)`), `mode()` (all values tied for highest frequency), `percentile(p)` (linear interpolation, matches `numpy.percentile`'s default method).
 
-#### `TDistribution(df)`
+**Spread:** `variance(ddof=0|1)`, `std(ddof=0|1)`, `data_range()`, `iqr()`.
+
+**Shape:** `skewness()`, `kurtosis()` (population/biased Fisher-Pearson; both return `0.0` for constant data by convention rather than raising).
+
+**Standardization:** `z_scores(ddof=0)` — returned in the *original* input order, not sorted.
+
+**Bivariate/multivariate (static methods):**
+```python
+DescriptiveStats.covariance(x, y, ddof=0) -> float
+DescriptiveStats.correlation(x, y) -> float                       # 0.0 if either series is constant
+DescriptiveStats.covariance_matrix(dataset, ddof=1) -> Matrix      # symmetric p x p
+DescriptiveStats.correlation_matrix(dataset) -> Matrix             # symmetric p x p, diagonal exactly 1.0
+```
+The matrix variants exploit symmetry (compute each off-diagonal pair once) and return a `Matrix` instance from the `Matrix` module.
+
+**Reporting:** `summary()` — formatted multi-line text block with count, mean, median, std, variance, min, max, range, IQR, skewness, kurtosis.
+
+### `hypothesis_tests.py`
+
+Every function returns a plain `dict` (not a custom result class) with the statistic, p-value, and supporting details.
 
 ```python
-dist = TDistribution(df=10)
-dist.pdf(t)
-dist.cdf(t)          # via regularized incomplete Beta function
-dist.sf(t)
-dist.ppf(p)          # via bisection search
-dist.p_value(t, alternative)   # 'two-sided', 'greater', or 'less'
+ttest_1samp(data, pop_mean, alternative="two-sided", alpha=0.05) -> dict
 ```
-
-#### `Chi2Distribution(df)`
+One-sample t-test. Keys: `t_statistic`, `p_value`, `df`, `alpha`, `reject_H0`, `alternative`, `cohens_d`, `conclusion`. Raises `ValueError` for fewer than 2 observations, zero/negligible sample variance, or invalid `alternative`/`alpha`.
 
 ```python
-dist = Chi2Distribution(df=5)
-dist.pdf(x)
-dist.cdf(x)    # via regularized incomplete Gamma function
-dist.sf(x)
+ttest_ind(data1, data2, alternative="two-sided", alpha=0.05) -> dict
 ```
-
-Returns `0.0` for `x <= 0`.
-
-#### `FDistribution(df1, df2)`
+Welch's two-sample t-test (unequal variances assumed). `df` is the fractional Welch-Satterthwaite degrees of freedom. `cohens_d` uses the conventional pooled-standard-deviation effect size even though the test statistic itself is Welch's.
 
 ```python
-dist = FDistribution(df1=3, df2=20)
-dist.pdf(f)
-dist.cdf(f)    # via regularized incomplete Beta function
-dist.sf(f)
+ttest_paired(data1, data2, alternative="two-sided", alpha=0.05) -> dict
 ```
-
-Returns `0.0` for `f <= 0`.
-
-#### `BetaDistribution(alpha, beta)`
+One-sample t-test on the within-pair differences. Raises `ValueError` on length mismatch or empty input.
 
 ```python
-dist = BetaDistribution(alpha=2.0, beta=5.0)
-dist.pdf(x)          # log-space computation; handles boundary singularities
-dist.cdf(x)          # trapezoidal integration (2000 steps)
-dist.ppf(p)          # bisection over [0, 1]
-dist.mean()          # alpha / (alpha + beta)
-dist.variance()
-dist.std()
-dist.sample(n)       # Johnk's method — valid for all alpha, beta > 0
+ztest_1samp(data, pop_mean, pop_std, alternative="two-sided", alpha=0.05) -> dict
 ```
-
-#### `GammaDistribution(alpha, beta)`
-
-Rate parameterization: mean = `alpha / beta`.
+One-sample z-test for known population standard deviation. Raises `ValueError` if `pop_std <= 0`.
 
 ```python
-dist = GammaDistribution(alpha=3.0, beta=1.0)
-dist.pdf(x)
-dist.cdf(x)          # trapezoidal integration
-dist.ppf(p)          # bisection with adaptive upper bound
-dist.mean()          # alpha / beta
-dist.variance()      # alpha / beta^2
-dist.std()
-dist.sample(n)       # Marsaglia-Tsang method; handles alpha < 1 via boosting
+confidence_interval(data, confidence=0.95) -> dict
 ```
-
----
-
-### `special_functions.py` — Numerical Special Functions
-
-Low-level numerical routines used internally by `TDistribution`, `Chi2Distribution`, and `FDistribution`. Can also be called directly.
-
-#### `betainc(a, b, x)`
-
-Regularized incomplete Beta function I_x(a, b) — returns P(X ≤ x) for X ~ Beta(a, b).
+t-based confidence interval for the population mean. Keys: `mean`, `std`, `n`, `confidence`, `t_critical`, `margin`, `lower`, `upper`.
 
 ```python
-from Probability.special_functions import betainc
-betainc(2.0, 5.0, 0.3)   # float in [0, 1]
+chisquare_gof(observed, expected=None, alpha=0.05) -> dict
 ```
-
-Implemented via Lentz's continued fraction expansion with symmetry reflection for numerical stability. Converges to `1e-15` tolerance within 200 iterations.
-
-#### `gammainc(a, x)`
-
-Regularized lower incomplete Gamma function P(a, x) — returns P(X ≤ x) for X ~ Gamma(a, 1).
+Chi-squared goodness-of-fit test. `expected` defaults to a uniform split of the observed total. Emits a `UserWarning` and returns `p_value=1.0` for a single category (zero degrees of freedom — the test cannot detect any departure).
 
 ```python
-from Probability.special_functions import gammainc
-gammainc(3.0, 2.0)    # float in [0, 1]
+chisquare_independence(observed, alpha=0.05) -> dict
 ```
-
-Selects between series expansion (for `x < a + 1`) and continued fraction (`x >= a + 1`) for numerical stability. Converges to `1e-12` tolerance within 300 iterations.
-
----
-
-### `descriptive_stats.py` — Descriptive Statistics
-
-#### `DescriptiveStats(data)`
-
-Accepts a non-empty list of `int` or `float` values. Data is sorted internally; the original order is preserved in `._raw`.
+Chi-squared test of independence on a 2D contingency table. Returns `expected_table` alongside the usual statistic/p-value/df. Raises `TypeError` if rows aren't sequences, `ValueError` for ragged rows, negative counts, a zero grand total, or a row/column that sums to zero.
 
 ```python
-from Probability.descriptive_stats import DescriptiveStats
-
-ds = DescriptiveStats([4, 7, 2, 9, 1, 5])
-
-ds.mean()              # arithmetic mean
-ds.median()            # 50th percentile
-ds.mode()              # list of most frequent values (sorted)
-ds.percentile(p)       # linear interpolation; p in [0, 100]
-ds.variance(ddof=0)    # population variance (ddof=0) or sample variance (ddof=1)
-ds.std(ddof=0)         # standard deviation
-ds.data_range()        # max - min
-ds.iqr()               # Q3 - Q1
-ds.skewness()          # Fisher's moment coefficient
-ds.kurtosis()          # excess kurtosis (normal = 0)
-ds.summary()           # formatted string of all statistics
+anova_oneway(*groups, alpha=0.05) -> dict
 ```
-
-#### Static Methods
-
-```python
-DescriptiveStats.covariance(x, y, ddof=0)       # float
-DescriptiveStats.correlation(x, y)              # Pearson r; float in [-1, 1]
-DescriptiveStats.covariance_matrix(dataset)     # Matrix object (ddof=1)
-DescriptiveStats.correlation_matrix(dataset)    # Matrix object
-```
-
-`dataset` is a list of lists — one list per variable. All variables must have the same length. Returns a `Matrix` instance from the `Matrices/` package.
-
-```python
-x = [1, 2, 3, 4]
-y = [2, 4, 5, 4]
-z = [1, 3, 5, 2]
-
-cov_mat = DescriptiveStats.covariance_matrix([x, y, z])   # 3×3 Matrix
-cor_mat = DescriptiveStats.correlation_matrix([x, y, z])  # 3×3 Matrix
-```
-
----
-
-### `hypothesis_tests.py` — Inferential Tests
-
-All test functions return a result `dict` with consistent keys: `t_statistic` or `chi2_statistic` or `F_statistic`, `p_value`, `df`, `alpha`, `reject_H0`, and `conclusion`.
-
-#### One-Sample t-test
-
-```python
-from Probability.hypothesis_tests import ttest_1samp
-
-result = ttest_1samp(
-    data=[2.1, 2.5, 2.3, 2.8, 2.0],
-    pop_mean=2.0,
-    alternative="two-sided",   # 'two-sided', 'greater', or 'less'
-    alpha=0.05
-)
-# result keys: t_statistic, p_value, df, alpha, reject_H0, alternative, conclusion
-```
-
-Detects near-constant data and raises `ValueError` before computing an undefined t-statistic.
-
-#### Independent Samples t-test (Welch's)
-
-```python
-from Probability.hypothesis_tests import ttest_ind
-
-result = ttest_ind(data1, data2, alternative="two-sided", alpha=0.05)
-# Uses Welch-Satterthwaite df approximation
-```
-
-#### Paired t-test
-
-```python
-from Probability.hypothesis_tests import ttest_paired
-
-result = ttest_paired(before, after, alternative="less", alpha=0.05)
-# Internally: ttest_1samp on element-wise differences
-```
-
-#### Confidence Interval
-
-```python
-from Probability.hypothesis_tests import confidence_interval
-
-result = confidence_interval(data, confidence=0.95)
-# result keys: mean, std, n, confidence, t_critical, margin, lower, upper
-```
-
-#### Chi-Square Goodness of Fit
-
-```python
-from Probability.hypothesis_tests import chisquare_gof
-
-result = chisquare_gof(
-    observed=[18, 22, 20, 15, 25],
-    expected=None,    # None = uniform expected frequencies
-    alpha=0.05
-)
-```
-
-#### Chi-Square Test of Independence
-
-```python
-from Probability.hypothesis_tests import chisquare_independence
-
-table = [[10, 20, 30],
-         [6,  9,  17]]
-
-result = chisquare_independence(table, alpha=0.05)
-# result also includes: expected_table
-```
-
-#### One-Way ANOVA
-
-```python
-from Probability.hypothesis_tests import anova_oneway
-
-result = anova_oneway(group_a, group_b, group_c, alpha=0.05)
-# result keys: F_statistic, p_value, df_between, df_within,
-#              SSB, SSW, MSB, MSW, group_means, grand_mean,
-#              alpha, reject_H0, conclusion
-```
-
-Requires at least two groups, each with at least two observations. Handles zero within-group variance edge cases.
+One-way ANOVA F-test across 2+ independent groups (each needing >= 2 observations). Keys include `F_statistic`, `p_value`, `df_between`, `df_within`, `SSB`, `SSW`, `MSB`, `MSW`, `group_means`, `grand_mean`. Handles the degenerate within-group-variance-zero case explicitly: `F=NaN, p=NaN` if between-group variance is also zero (identical groups), `F=inf, p=0.0` otherwise (perfect separation).
 
 ---
 
 ## Example Session
 
 ```python
-from Probability.descriptive_stats import DescriptiveStats
-from Probability.continuous import NormalDistribution, TDistribution
-from Probability.discrete import PoissonDistribution
-from Probability.hypothesis_tests import ttest_ind, anova_oneway, confidence_interval
+from descriptive_stats import DescriptiveStats
+from discrete import BinomialDistribution
+from continuous import NormalDistribution, BetaDistribution
+from hypothesis_tests import ttest_1samp, confidence_interval, anova_oneway
 
-data = [14.2, 13.8, 15.1, 14.7, 13.5, 15.3, 14.9]
-ds = DescriptiveStats(data)
-print(ds.summary())
+s = DescriptiveStats([2, 4, 4, 4, 5, 5, 7, 9])
+s.mean(), s.median(), s.mode()          # (5.0, 4.5, [4])
+print(s.summary())
 
-norm = NormalDistribution(mu=14.5, sigma=0.6)
-print(norm.cdf(15.0))      # P(X <= 15)
-print(norm.ppf(0.975))     # 97.5th percentile
+b = BinomialDistribution(n=10, p=0.3)
+round(b.pmf(3), 4)                       # 0.2668
+round(b.cdf(3), 4)                       # 0.6496
 
-pois = PoissonDistribution(lam=3.0)
-print(pois.pmf(k=2))
-print(pois.sample(10))
+n = NormalDistribution(mu=0, sigma=1)
+round(n.cdf(1.96), 4)                    # 0.975
 
-result = ttest_ind(
-    [14.2, 13.8, 15.1, 14.7],
-    [13.1, 12.9, 13.5, 14.0],
-    alternative="two-sided"
-)
-print(result["conclusion"])
+beta = BetaDistribution(2, 5)
+beta.mean(), beta.sample(3, seed=1)
 
-ci = confidence_interval(data, confidence=0.95)
-print(f"95% CI: ({ci['lower']:.3f}, {ci['upper']:.3f})")
+r = ttest_1samp([5.1, 4.9, 5.3, 5.0, 4.8], pop_mean=5.0)
+r["conclusion"]                          # 'Fail to reject H0'
 
-result = anova_oneway([5, 6, 7], [8, 9, 10], [4, 5, 6], alpha=0.05)
-print(result["F_statistic"], result["p_value"])
+ci = confidence_interval([5.1, 4.9, 5.3, 5.0, 4.8, 5.2], confidence=0.95)
+ci["lower"], ci["upper"]
+
+anova_oneway([1, 2, 3, 4], [2, 3, 4, 5], [5, 6, 7, 8])["p_value"]
+
+# Covariance/correlation matrices (Matrix-valued)
+dataset = [[1, 2, 3, 4, 5], [2, 4, 5, 4, 5], [5, 3, 2, 1, 1]]
+cov = DescriptiveStats.covariance_matrix(dataset)
+corr = DescriptiveStats.correlation_matrix(dataset)
 ```
-
----
-
-## Error Reference
-
-| Situation | Exception |
-|---|---|
-| `sigma <= 0` in NormalDistribution | `ValueError` |
-| `df <= 0` in T/Chi2/F distributions | `ValueError` |
-| `alpha <= 0` or `beta <= 0` in Beta/Gamma | `ValueError` |
-| `p` outside `(0, 1)` in `ppf` | `ValueError` |
-| `alternative` not in allowed set | `ValueError` |
-| `alpha` outside `(0, 1)` in hypothesis tests | `ValueError` |
-| Non-integer `k` in `pmf` (Binomial, Poisson) | `TypeError` |
-| Empty or non-numeric data in `DescriptiveStats` | `ValueError` / `TypeError` |
-| `ddof=1` with fewer than 2 points | `ValueError` |
-| Mismatched list lengths in `covariance`/`correlation` | `ValueError` |
-| Near-constant data in `ttest_1samp` | `ValueError` |
-| Paired samples of unequal length | `ValueError` |
-| Zero grand total in chi-square tests | `ValueError` |
-| Zero expected count in independence test | `ValueError` |
-| Fewer than 2 groups or observations in ANOVA | `ValueError` |
-| `x` outside `[0, 1]` in `betainc` | `ValueError` |
-| `x < 0` in `gammainc` | `ValueError` |
 
 ---
 
 ## Design Notes
 
-- **No external libraries:** All numerical methods — continued fraction expansion for the incomplete Beta, series/CF for the incomplete Gamma, Rational approximation for the Normal PPF, Marsaglia-Tsang sampling for Gamma — are implemented from scratch.
-- **Log-space arithmetic:** PDF computations for Beta, Gamma, T, F, and Chi-squared distributions use `math.lgamma` and `math.log` to avoid overflow and underflow on extreme parameter values.
-- **Numerical stability in special functions:** `betainc` uses the symmetry relation `I_x(a,b) = 1 - I_{1-x}(b,a)` to route evaluations to the faster-converging side of the continued fraction. `gammainc` switches between series and CF based on the `x < a+1` heuristic.
-- **`DescriptiveStats` sorts on construction:** All percentile and IQR computations operate on a sorted copy; the unsorted original is preserved in `._raw`.
-- **Welch's t-test, not Student's:** `ttest_ind` uses the Welch-Satterthwaite degrees of freedom approximation — no assumption of equal variances.
-- **`BetaDistribution.cdf` and `GammaDistribution.cdf` use trapezoidal integration:** These are numerically approximate (2000 steps). For high-precision needs, use `betainc`/`gammainc` directly.
+- **Exact CDFs, not numerical integration.** `Chi2Distribution`,
+  `BetaDistribution`, and `GammaDistribution` compute their CDFs via the
+  regularized incomplete gamma/beta functions from `special_functions.py`
+  rather than trapezoidal quadrature. This was a deliberate rewrite —
+  dramatically faster (O(iterations of a continued fraction) instead of
+  O(n_steps) quadrature calls) and more accurate — and is guarded by
+  regression tests (`test_cdf_exact_matches_scipy`,
+  `test_cdf_speed_is_fast`) so it can't silently regress.
+- **Log-space arithmetic wherever products of many/large terms would
+  overflow.** `PoissonDistribution.pmf`, `BetaDistribution.pdf`, and
+  `GammaDistribution.pdf` all compute in log-space
+  (`math.lgamma`/`math.log`/`math.exp`) rather than evaluating
+  `lam**k / k!`-style products directly, which would overflow for even
+  moderately large `k`, `alpha`, or `beta`.
+- **Poisson sampling underflow workaround.** Knuth's direct-simulation
+  algorithm needs `exp(-lam)`, which underflows to exactly `0.0` in IEEE
+  double precision above `lam ≈ 700` — this would make the algorithm loop
+  effectively forever rather than raise. `PoissonDistribution` exploits
+  the infinite divisibility of the Poisson distribution: it decomposes
+  `Poisson(lam)` into a sum of independent `Poisson(lam/m)` draws with
+  `m` chosen to keep each chunk's rate at or below a safe threshold
+  (`_KNUTH_SAFE_LAMBDA = 20.0`). Covered by a regression test
+  (`test_large_lambda_sampling_does_not_hang`).
+- **`bool` is rejected everywhere a numeric parameter is expected** —
+  distribution parameters, dataset elements, discrete `k`/`n` — for the
+  same reason as `Vector`/`Matrix`: `bool` is an `int` subclass in
+  Python, and silently accepting `True`/`False` almost always indicates
+  an upstream bug.
+- **NaN is rejected, not propagated, in `DescriptiveStats`.** Unlike
+  `Vector`, which lets NaN propagate through arithmetic, sorting-based
+  statistics (median, percentile, mode) are undefined in the presence of
+  NaN, since any comparison against NaN is `False` in IEEE-754. Rather
+  than silently produce a wrong answer, the constructor validates
+  up front and raises `ValueError` with an explanation.
+- **Skewness/kurtosis of constant data return `0.0`, not an error.** A
+  zero-variance dataset makes the standard formulas divide by zero;
+  by convention, skewness and (excess) kurtosis of a degenerate
+  distribution are taken to be `0.0` rather than raising, since "no
+  asymmetry" and "no excess peakedness" are the mathematically sensible
+  defaults for a point mass.
+- **Undefined moments raise rather than return `NaN`.** `TDistribution`
+  (`df <= 1`) and `FDistribution` (`mean` for `df2 <= 2`, `variance` for
+  `df2 <= 4`) raise `ValueError` for parameter ranges where the
+  moment is mathematically undefined or infinite-in-a-different-sense,
+  rather than silently returning `NaN` or `inf` without explanation —
+  except `TDistribution.variance()`, which does correctly return
+  `math.inf` for `1 < df <= 2`, since that case has a well-defined
+  (infinite) answer, unlike `df <= 1`.
+- **Every hypothesis test returns a plain `dict`.** This keeps results
+  trivially inspectable, loggable, and serializable without a custom
+  result-object hierarchy — a deliberate simplicity trade-off consistent
+  with the rest of this "from scratch" curriculum.
+- **ANOVA and Welch's t-test handle degenerate variance explicitly**
+  rather than letting a division by zero raise unhelpfully: identical
+  groups yield `F=NaN, p=NaN`; zero within-group variance with nonzero
+  between-group variance yields `F=inf, p=0.0` (perfect separation is
+  still a meaningful, decisive result).
+- **`covariance_matrix`/`correlation_matrix` exploit symmetry**, computing
+  each off-diagonal pair once instead of twice, and set the correlation
+  diagonal to exactly `1.0` by definition rather than computing it (which
+  would otherwise require a zero-variance special case).
+
+---
+
+## Test Coverage
+
+Each library file has a matching `tests/test_*.py` that cross-checks
+numeric correctness against SciPy/NumPy (`scipy.stats`, `scipy.special`,
+`numpy.mean`/`var`/`percentile`/`cov`/`corrcoef`) in addition to covering
+construction/validation, edge cases (zero variance, degenerate
+parameters, boundary values), and reproducibility (seeded sampling).
+Notable regression tests: exact vs. trapezoidal CDF equivalence and speed
+for Beta/Gamma, and the large-`lambda` Poisson sampling performance fix.
+
+Run the full suite with verbose output:
+
+```bash
+pytest tests/ -v
+```
 
 ---
 
 ## Roadmap Context
 
-This package spans multiple foundational projects in the Engineering Redemption Arc curriculum:
-
-- **Depends on** — `Vectors/vector.py` (Project 1), `Matrices/matrix.py` (Project 2)
-- **Underpins** — Bayesian inference, information theory, and all ML model implementations in Phase 2 (Projects 11–25), where probability distributions, log-likelihoods, and hypothesis tests are used directly in model training and evaluation.
+`Probability/` is the third module in **Phase 1: Math Foundations**,
+building on both `Vectors/vector.py` (indirectly, via `Matrix`) and
+`Matrix/matrix.py` (directly, for covariance/correlation matrices). It
+carries forward the same conventions established there — explicit
+exception hierarchy, boolean/NaN rejection where relevant, SciPy/NumPy
+confined to tests, full docstring + type-hint coverage — while
+introducing the statistical primitives (distributions, hypothesis
+testing) that later phases (e.g. Bayesian methods, statistical ML
+algorithms) will depend on.
