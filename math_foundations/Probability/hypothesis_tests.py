@@ -1,21 +1,94 @@
-import math
+"""
+hypothesis_tests.py
+====================
+
+Classical frequentist hypothesis tests built on top of
+:mod:`descriptive_stats` and :mod:`continuous`: one- and two-sample
+t-tests (Welch's for unequal variances), paired t-test, z-test,
+confidence intervals, chi-squared goodness-of-fit and independence
+tests, and one-way ANOVA.
+
+Every test returns a plain ``dict`` with the statistic, p-value, and
+supporting details, so results can be inspected, logged, or serialized
+without needing a custom result class.
+
+Example
+-------
+>>> result = ttest_1samp([5.1, 4.9, 5.3, 5.0, 4.8], pop_mean=5.0)
+>>> result['conclusion']
+'Fail to reject H0'
+"""
+
+from __future__ import annotations
+
 import os
 import sys
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-from Probability.descriptive_stats import DescriptiveStats
-from Probability.continuous import TDistribution, Chi2Distribution, FDistribution
+import math
+import warnings
+from typing import Dict, List, Optional, Sequence, Union
 
 
-def ttest_1samp(data: list,pop_mean: float,alternative: str = "two-sided",alpha: float = 0.05,) -> dict:
-    if alternative not in ("two-sided", "greater", "less"):
-        raise ValueError("alternative must be 'two-sided', 'greater', or 'less'")
+
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_parent_dir = os.path.abspath(os.path.join(_current_dir, ".."))
+if _parent_dir not in sys.path:
+    sys.path.insert(0, _parent_dir)
+from Probability.descriptive_stats import DescriptiveStats  # type: ignore
+from Probability.continuous import (  # type: ignore
+    Chi2Distribution,
+    FDistribution,
+    NormalDistribution,
+    TDistribution,
+)
+
+Number = Union[int, float]
+
+_ALTERNATIVES = ("two-sided", "greater", "less")
+
+
+def _validate_alternative(alternative: str) -> None:
+    if alternative not in _ALTERNATIVES:
+        raise ValueError(f"alternative must be one of {_ALTERNATIVES}, got {alternative!r}")
+
+
+def _validate_alpha(alpha: float) -> None:
     if not (0.0 < alpha < 1.0):
         raise ValueError("alpha must be between 0 and 1 exclusive")
+
+
+def ttest_1samp(
+    data: Sequence[Number],
+    pop_mean: float,
+    alternative: str = "two-sided",
+    alpha: float = 0.05,
+) -> Dict:
+    """One-sample t-test: is ``mean(data)`` different from ``pop_mean``?
+
+    Parameters
+    ----------
+    data : Sequence[Number]
+        Sample observations; needs at least 2 points.
+    pop_mean : float
+        Hypothesized population mean under H0.
+    alternative : {'two-sided', 'greater', 'less'}, optional
+    alpha : float, optional
+        Significance level, in ``(0, 1)``.
+
+    Returns
+    -------
+    dict
+        Keys: ``t_statistic``, ``p_value``, ``df``, ``alpha``,
+        ``reject_H0``, ``alternative``, ``cohens_d``, ``conclusion``.
+
+    Raises
+    ------
+    ValueError
+        If ``alternative``/``alpha`` are invalid, fewer than 2
+        observations are given, or the sample has (effectively) zero
+        variance.
+    """
+    _validate_alternative(alternative)
+    _validate_alpha(alpha)
 
     stats = DescriptiveStats(data)
     n = stats.n
@@ -30,12 +103,16 @@ def ttest_1samp(data: list,pop_mean: float,alternative: str = "two-sided",alpha:
 
     data_scale = max(abs(x) for x in data)
     if data_scale > 0.0 and sample_std / data_scale < 1e-10:
-        raise ValueError("Sample standard deviation is negligible relative to the data magnitude.\nThe data may be effectively constant due to floating-point precision limits.")
+        raise ValueError(
+            "Sample standard deviation is negligible relative to the data magnitude.\n"
+            "The data may be effectively constant due to floating-point precision limits."
+        )
 
     t_stat = (sample_mean - pop_mean) / (sample_std / math.sqrt(n))
     df = n - 1
     p_value = TDistribution(df).p_value(t_stat, alternative)
     reject = p_value < alpha
+    cohens_d = (sample_mean - pop_mean) / sample_std
 
     return {
         "t_statistic": t_stat,
@@ -44,15 +121,42 @@ def ttest_1samp(data: list,pop_mean: float,alternative: str = "two-sided",alpha:
         "alpha": alpha,
         "reject_H0": reject,
         "alternative": alternative,
+        "cohens_d": cohens_d,
         "conclusion": "Reject H0" if reject else "Fail to reject H0",
     }
 
 
-def ttest_ind(data1: list,data2: list,alternative: str = "two-sided",alpha: float = 0.05,) -> dict:
-    if alternative not in ("two-sided", "greater", "less"):
-        raise ValueError("alternative must be 'two-sided', 'greater', or 'less'")
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be between 0 and 1 exclusive")
+def ttest_ind(
+    data1: Sequence[Number],
+    data2: Sequence[Number],
+    alternative: str = "two-sided",
+    alpha: float = 0.05,
+) -> Dict:
+    """Welch's two-sample t-test (does not assume equal variances).
+
+    Parameters
+    ----------
+    data1, data2 : Sequence[Number]
+        Independent samples; each needs at least 2 points.
+    alternative : {'two-sided', 'greater', 'less'}, optional
+    alpha : float, optional
+
+    Returns
+    -------
+    dict
+        Keys: ``t_statistic``, ``p_value``, ``df``, ``alpha``,
+        ``reject_H0``, ``alternative``, ``cohens_d``, ``conclusion``.
+        ``df`` is the (fractional) Welch-Satterthwaite degrees of freedom.
+
+    Raises
+    ------
+    ValueError
+        If ``alternative``/``alpha`` are invalid, either sample has
+        fewer than 2 observations, or both samples have zero variance
+        with identical means.
+    """
+    _validate_alternative(alternative)
+    _validate_alpha(alpha)
 
     stats1 = DescriptiveStats(data1)
     stats2 = DescriptiveStats(data2)
@@ -72,7 +176,8 @@ def ttest_ind(data1: list,data2: list,alternative: str = "two-sided",alpha: floa
 
     if pooled_se == 0.0:
         raise ValueError(
-            "Both samples have zero variance with identical means;\nt-statistic is undefined")
+            "Both samples have zero variance with identical means;\nt-statistic is undefined"
+        )
 
     t_stat = (mean1 - mean2) / math.sqrt(pooled_se)
 
@@ -85,6 +190,12 @@ def ttest_ind(data1: list,data2: list,alternative: str = "two-sided",alpha: floa
     p_value = TDistribution(df).p_value(t_stat, alternative)
     reject = p_value < alpha
 
+    # Pooled standard deviation for Cohen's d (assumes equal population
+    # variances, unlike the Welch test statistic itself -- this is the
+    # conventional effect-size convention even alongside a Welch test).
+    pooled_std = math.sqrt(((n1 - 1) * std1 ** 2 + (n2 - 1) * std2 ** 2) / (n1 + n2 - 2))
+    cohens_d = (mean1 - mean2) / pooled_std if pooled_std > 0.0 else float("nan")
+
     return {
         "t_statistic": t_stat,
         "p_value": p_value,
@@ -92,11 +203,25 @@ def ttest_ind(data1: list,data2: list,alternative: str = "two-sided",alpha: floa
         "alpha": alpha,
         "reject_H0": reject,
         "alternative": alternative,
+        "cohens_d": cohens_d,
         "conclusion": "Reject H0" if reject else "Fail to reject H0",
     }
 
 
-def ttest_paired(data1: list,data2: list,alternative: str = "two-sided",alpha: float = 0.05,) -> dict:
+def ttest_paired(
+    data1: Sequence[Number],
+    data2: Sequence[Number],
+    alternative: str = "two-sided",
+    alpha: float = 0.05,
+) -> Dict:
+    """Paired-sample t-test: one-sample t-test on the within-pair differences.
+
+    Raises
+    ------
+    ValueError
+        If the samples differ in length or are empty (plus everything
+        :func:`ttest_1samp` can raise on the differences).
+    """
     if len(data1) != len(data2):
         raise ValueError("Paired samples must have the same length")
     if len(data1) == 0:
@@ -105,7 +230,76 @@ def ttest_paired(data1: list,data2: list,alternative: str = "two-sided",alpha: f
     return ttest_1samp(diff, 0.0, alternative, alpha)
 
 
-def confidence_interval(data: list, confidence: float = 0.95) -> dict:
+def ztest_1samp(
+    data: Sequence[Number],
+    pop_mean: float,
+    pop_std: float,
+    alternative: str = "two-sided",
+    alpha: float = 0.05,
+) -> Dict:
+    """One-sample z-test, for when the population standard deviation is known.
+
+    Parameters
+    ----------
+    data : Sequence[Number]
+        Sample observations; needs at least 1 point.
+    pop_mean : float
+        Hypothesized population mean under H0.
+    pop_std : float
+        *Known* population standard deviation; must be positive.
+    alternative : {'two-sided', 'greater', 'less'}, optional
+    alpha : float, optional
+
+    Returns
+    -------
+    dict
+        Keys: ``z_statistic``, ``p_value``, ``alpha``, ``reject_H0``,
+        ``alternative``, ``conclusion``.
+
+    Raises
+    ------
+    ValueError
+        If ``alternative``/``alpha``/``pop_std`` are invalid, or ``data`` is empty.
+    """
+    _validate_alternative(alternative)
+    _validate_alpha(alpha)
+    if pop_std <= 0.0:
+        raise ValueError("pop_std must be positive")
+
+    stats = DescriptiveStats(data)
+    n = stats.n
+    sample_mean = stats.mean()
+
+    z_stat = (sample_mean - pop_mean) / (pop_std / math.sqrt(n))
+    std_normal = NormalDistribution(0.0, 1.0)
+
+    if alternative == "two-sided":
+        p_value = 2.0 * min(std_normal.cdf(z_stat), std_normal.sf(z_stat))
+    elif alternative == "greater":
+        p_value = std_normal.sf(z_stat)
+    else:  # "less"
+        p_value = std_normal.cdf(z_stat)
+
+    reject = p_value < alpha
+
+    return {
+        "z_statistic": z_stat,
+        "p_value": p_value,
+        "alpha": alpha,
+        "reject_H0": reject,
+        "alternative": alternative,
+        "conclusion": "Reject H0" if reject else "Fail to reject H0",
+    }
+
+
+def confidence_interval(data: Sequence[Number], confidence: float = 0.95) -> Dict:
+    """A t-based confidence interval for the population mean.
+
+    Raises
+    ------
+    ValueError
+        If ``confidence`` is not in ``(0, 1)`` or fewer than 2 observations are given.
+    """
     if not (0.0 < confidence < 1.0):
         raise ValueError("confidence must be strictly between 0 and 1")
 
@@ -133,9 +327,31 @@ def confidence_interval(data: list, confidence: float = 0.95) -> dict:
     }
 
 
-def chisquare_gof(observed: list,expected: list = None,alpha: float = 0.05,) -> dict:
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be between 0 and 1 exclusive")
+def chisquare_gof(
+    observed: Sequence[Number],
+    expected: Optional[Sequence[Number]] = None,
+    alpha: float = 0.05,
+) -> Dict:
+    """Chi-squared goodness-of-fit test.
+
+    Parameters
+    ----------
+    observed : Sequence[Number]
+        Observed counts; must be non-negative.
+    expected : Sequence[Number], optional
+        Expected counts; defaults to a uniform distribution over the
+        total observed count. Must be positive if given.
+    alpha : float, optional
+
+    Raises
+    ------
+    ValueError
+        If ``alpha`` is invalid, ``observed`` is empty, any observed
+        count is negative, ``expected`` has a different length, any
+        expected count is non-positive, or the observed total is 0
+        (when ``expected`` is auto-derived).
+    """
+    _validate_alpha(alpha)
     if len(observed) == 0:
         raise ValueError("observed must be non-empty")
 
@@ -161,11 +377,12 @@ def chisquare_gof(observed: list,expected: list = None,alpha: float = 0.05,) -> 
     df = k - 1
 
     if df == 0:
-        import warnings
-        warnings.warn("k=1 provides zero degrees of freedom. The test cannot detect any "
+        warnings.warn(
+            "k=1 provides zero degrees of freedom. The test cannot detect any "
             "departure from expectation. p_value is always 1.0.",
             UserWarning,
-            stacklevel=2,)
+            stacklevel=2,
+        )
         p_value = 1.0
     else:
         p_value = Chi2Distribution(df).sf(chi2)
@@ -181,11 +398,25 @@ def chisquare_gof(observed: list,expected: list = None,alpha: float = 0.05,) -> 
     }
 
 
-def chisquare_independence(observed: list, alpha: float = 0.05) -> dict:
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be between 0 and 1 exclusive")
+def chisquare_independence(observed: Sequence[Sequence[Number]], alpha: float = 0.05) -> Dict:
+    """Chi-squared test of independence on a contingency table.
+
+    Raises
+    ------
+    ValueError
+        If ``alpha`` is invalid, the table is empty/ragged, any count
+        is negative, the grand total is 0, or a row/column totals to 0
+        (making an expected count undefined).
+    TypeError
+        If ``observed`` rows are not themselves sequences.
+    """
+    _validate_alpha(alpha)
     if not observed:
         raise ValueError("Observed table must be non-empty")
+
+    for i, row in enumerate(observed):
+        if not hasattr(row, "__len__"):
+            raise TypeError(f"Row {i} must be a sequence (e.g. list) of counts, got {type(row).__name__}")
 
     n_rows = len(observed)
     n_cols = len(observed[0])
@@ -217,7 +448,11 @@ def chisquare_independence(observed: list, alpha: float = 0.05) -> dict:
             expected_row.append(e)
         expected_table.append(expected_row)
 
-    chi2 = sum(((observed[i][j] - expected_table[i][j]) ** 2) / expected_table[i][j] for i in range(n_rows) for j in range(n_cols))
+    chi2 = sum(
+        ((observed[i][j] - expected_table[i][j]) ** 2) / expected_table[i][j]
+        for i in range(n_rows)
+        for j in range(n_cols)
+    )
 
     df = (n_rows - 1) * (n_cols - 1)
     p_value = Chi2Distribution(df).sf(chi2) if df > 0 else 1.0
@@ -234,24 +469,48 @@ def chisquare_independence(observed: list, alpha: float = 0.05) -> dict:
     }
 
 
-def anova_oneway(*groups: list, alpha: float = 0.05) -> dict:
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be between 0 and 1 exclusive")
+def anova_oneway(*groups: Sequence[Number], alpha: float = 0.05) -> Dict:
+    """One-way ANOVA F-test across two or more independent groups.
+
+    Parameters
+    ----------
+    *groups : Sequence[Number]
+        Two or more groups, each with at least 2 observations.
+    alpha : float, optional
+
+    Returns
+    -------
+    dict
+        Keys: ``F_statistic``, ``p_value``, ``df_between``, ``df_within``,
+        ``SSB``, ``SSW``, ``MSB``, ``MSW``, ``group_means``, ``grand_mean``,
+        ``alpha``, ``reject_H0``, ``conclusion``.
+
+    Raises
+    ------
+    ValueError
+        If ``alpha`` is invalid, fewer than 2 groups are given, or any
+        group has fewer than 2 observations.
+    """
+    _validate_alpha(alpha)
 
     k = len(groups)
     if k < 2:
         raise ValueError("Need at least two groups for ANOVA")
 
+    # Reuse DescriptiveStats for validation (numeric, non-empty, no NaN)
+    # and mean computation, instead of re-implementing those checks here.
+    group_stats = []
     for i, g in enumerate(groups):
         if len(g) == 0:
             raise ValueError(f"Group {i} is empty")
         if len(g) < 2:
             raise ValueError(f"Group {i} has only 1 observation.\nEach group must have at least 2 observations")
+        group_stats.append(DescriptiveStats(g))
 
-    group_n = [len(g) for g in groups]
-    group_mean = [sum(g) / ni for g, ni in zip(groups, group_n)]
+    group_n = [s.n for s in group_stats]
+    group_mean = [s.mean() for s in group_stats]
     N = sum(group_n)
-    grand_mean = sum(sum(g) for g in groups) / N
+    grand_mean = sum(s.mean() * s.n for s in group_stats) / N
 
     ssb = sum(ni * (m - grand_mean) ** 2 for ni, m in zip(group_n, group_mean))
     ssw = sum((x - m) ** 2 for g, m in zip(groups, group_mean) for x in g)
