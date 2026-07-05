@@ -1,6 +1,4 @@
 # Matrix — N x M Matrix Library (From Scratch)
-
-Part of the [`ml-implementation-from-scratch`](../../) curriculum —
 **Phase 1: Math Foundations**.
 
 A dependency-free, pure-Python N x M matrix library built directly on top
