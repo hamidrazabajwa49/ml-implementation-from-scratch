@@ -1,481 +1,346 @@
-# Optimization — Pure Python Optimization Library
+# Optimization — Gradient-Based & Quasi-Newton Optimizers (From Scratch)
+
+**Phase 1: Math Foundations**.
+
+A dependency-free, pure-Python optimization library: first-order
+optimizers (SGD family, RMSProp, Adam, AdaGrad) that work over
+`float`/`Vector`/`Matrix` parameters, second-order optimizers (Newton's
+method, BFGS) over flat float lists, 1D line search routines, and the
+finite-difference/driver-loop utilities that tie them together. SciPy is
+used only in the test suite, as a correctness oracle.
+
+---
 
 ## Overview
 
-The `Optimization/` package is a pure Python implementation of gradient-based optimization algorithms — built from scratch as part of the *Engineering Redemption Arc*, a structured 60-project ML engineering curriculum in the [`ml-implementation-from-scratch`](https://github.com/) repository.
+| File | Provides |
+|---|---|
+| `base.py` | `Optimizer` — the shared base class and calling-convention contract |
+| `first_order.py` | `GradientDescent`, `SGD`, `Momentum`, `AdaGrad`, `RMSProp`, `Adam` |
+| `second_order.py` | `NewtonMethod`, `BFGS` + lightweight list-of-lists linear algebra helpers |
+| `line_search.py` | `backtracking` (Armijo), `golden_section` |
+| `utils.py` | `numerical_gradient`, `numerical_hessian`, flat-vector helpers, `ConvergenceTracker`, `optimize()` driver loop |
 
-The package covers first-order optimizers (GD, SGD with momentum and decay, Momentum, RMSProp, Adam), second-order methods (Newton's Method, BFGS), line search strategies (backtracking, golden section), numerical differentiation utilities, a convergence tracker, and a unified `optimize()` loop — all without NumPy or SciPy.
+**Two calling conventions coexist by design** (documented in full in
+`base.py`'s module docstring):
 
-Parameters can be scalars (`float`), `Vector` objects, or `Matrix` objects from the sibling packages, enabling the same optimizers to drive both toy functions and full model weight updates.
+- **First-order** optimizers accept `params` as a list of
+  `float`/`Vector`/`Matrix` elements and mutate it **in place**,
+  returning `None`.
+- **Second-order** optimizers operate on a flat list of floats and
+  **return a new list** instead, since they need the whole vector at
+  once to apply a (inverse) Hessian.
+
+`utils.optimize()` drives either family transparently:
+`result = optimizer.step(x, grads); if result is not None: x = result`.
 
 ---
 
 ## Project Structure
 
 ```
-ml-implementation-from-scratch/
-├── Vectors/
-│   └── vector.py                  # Vector primitive
-├── Matrix/
-│   └── matrix.py                  # Matrix primitive
+math_foundations/
 └── Optimization/
-    ├── base.py                    # Optimizer abstract base class
-    ├── first_order.py             # GradientDescent, SGD, Momentum, RMSProp, Adam
-    ├── second_order.py            # NewtonMethod, BFGS
-    ├── line_search.py             # backtracking(), golden_section()
-    └── utils.py                   # Numerical differentiation, ConvergenceTracker, optimize()
+    ├── base.py
+    ├── first_order.py
+    ├── second_order.py
+    ├── line_search.py
+    ├── utils.py
+    ├── tests/
+    │   ├── test_base.py
+    │   ├── test_first_order.py
+    │   ├── test_second_order.py
+    │   ├── test_line_search.py
+    │   └── test_utils.py
+    └── README.md
 ```
+
+`base.py` and `first_order.py` import `Vector`/`Matrix` from the sibling
+`Vectors`/`Matrix` modules; `second_order.py` imports from `base.py` and
+`utils.py`. `line_search.py` and `utils.py` (aside from the base-optimizer
+type hint) are otherwise self-contained. `Vectors`, `Matrix`, and
+`Optimization` must all live side-by-side under `math_foundations/`.
 
 ---
 
 ## Dependencies
 
-| Requirement | Detail |
+| Component | Requires |
 |---|---|
-| Python | 3.10+ |
-| `math`, `os`, `sys`, `typing` | Standard library only |
-| `Vectors/vector.py` | Parameter type support in `base.py` and `first_order.py` |
-| `Matrix/matrix.py` | Parameter type support in `base.py` and `first_order.py` |
+| Library files | Python 3.8+ standard library only (`math`, `logging`, `typing`) + `Vectors.vector.Vector` / `Matrix.matrix.Matrix` (sibling modules, for `base.py`/`first_order.py`) |
+| `tests/*.py` | `pytest`, `scipy` (test-only, for regression checks against `scipy.optimize`) |
 
-`line_search.py` is fully self-contained — it has no local imports.
+Install test dependencies:
 
-No `pip install` required.
+```bash
+pip install pytest scipy
+```
 
----
+Run the full suite from `math_foundations/Optimization/`:
 
-## Installation
-
-```python
-import sys
-sys.path.insert(0, "/path/to/ml-implementation-from-scratch")
-
-from Optimization.first_order import GradientDescent, SGD, Momentum, RMSProp, Adam
-from Optimization.second_order import NewtonMethod, BFGS
-from Optimization.line_search import backtracking, golden_section
-from Optimization.utils import numerical_gradient, numerical_hessian, optimize, ConvergenceTracker
+```bash
+pytest tests/ -v
 ```
 
 ---
 
 ## Module Reference
 
----
-
-### `base.py` — Abstract Base Class
-
-#### `Optimizer(lr=0.01)`
-
-All optimizers inherit from this class. Provides shared state and helpers.
+### `base.py`
 
 ```python
-optimizer.lr             # learning rate
-optimizer.iterations     # step count
-optimizer.history        # list of recorded losses
-
-optimizer.step(params, grads)   # abstract — implemented by subclasses
-optimizer.reset()               # resets iterations, history, and any internal state
-optimizer.record(loss)          # appends a loss value to history
-optimizer.get_config()          # returns {"lr": ...}
-optimizer._zeros_like(x)        # returns a zero of the same type as x (float, Vector, Matrix)
+class Optimizer:
+    def __init__(self, lr: float = 0.01)
+    def step(self, params, grads) -> None | List[float]     # abstract; raises NotImplementedError
+    def reset(self) -> None                                    # clears iterations/history + subclass state
+    def get_config(self) -> Dict[str, float]                   # {"lr": ...}
+    def record(self, loss: float) -> None                      # appends to self.history
+    def _zeros_like(self, x) -> float | Vector | Matrix
 ```
+Shared base class. `lr` is validated positive/finite/non-NaN/non-bool at construction. `_zeros_like` returns a zero-valued object matching `x`'s type (`float`/`Vector`/`Matrix`) — used by stateful optimizers to initialize per-parameter accumulators (velocity, squared-gradient cache); raises `TypeError` for `bool` or any other unsupported type.
 
-`lr` must be positive. `step()` raises `NotImplementedError` if called on `Optimizer` directly.
+### `first_order.py`
 
----
+All classes below accept `params`/`grads` as lists of `float`/`Vector`/`Matrix` (one entry per parameter *tensor*), mutate `params` **in place**, and return `None`. All raise `ValueError` if `len(params) != len(grads)`.
 
-### `first_order.py` — First-Order Optimizers
-
-All first-order optimizers accept `params` and `grads` as lists whose elements can be `float`, `Vector`, or `Matrix`. They mutate `params` in place and increment `self.iterations`.
-
----
-
-#### `GradientDescent(lr=0.01)`
-
-Vanilla gradient descent: `p ← p − lr · g`.
-
-```python
-from Optimization.first_order import GradientDescent
-
-opt = GradientDescent(lr=0.1)
-params = [2.0, -1.0]
-grads  = [0.4,  0.8]
-opt.step(params, grads)
-# params is now updated in place
-```
-
----
-
-#### `SGD(lr=0.01, momentum=0.0, decay=0.0)`
-
-SGD with optional momentum and learning rate decay.
-
-```python
-from Optimization.first_order import SGD
-
-opt = SGD(lr=0.01, momentum=0.9, decay=1e-4)
-opt.step(params, grads)
-```
-
-- **Momentum:** `v ← momentum·v + lr_eff·g`, then `p ← p − v`.
-- **Decay:** `lr_eff = lr / (1 + decay × t)` where `t` is the iteration count.
-- When `momentum=0.0` (default), reduces to plain SGD with optional decay.
-- `momentum` must be in `[0, 1)`. `decay` must be non-negative.
-
----
-
-#### `Momentum(lr=0.01, beta=0.9)`
-
-Exponential moving average of gradients: `v ← β·v + (1−β)·g`, then `p ← p − lr·v`.
-
-```python
-from Optimization.first_order import Momentum
-
-opt = Momentum(lr=0.01, beta=0.9)
-opt.step(params, grads)
-```
-
-`beta` must be in `[0, 1)`. Velocity is initialized to zeros on the first `step()` call.
-
-> **Distinction from SGD with momentum:** The `SGD` class uses the standard formulation `v ← β·v + lr·g`. `Momentum` uses the EMA formulation `v ← β·v + (1−β)·g`, which keeps the scale of `v` closer to that of `g`.
-
----
-
-#### `RMSProp(lr=0.001, beta=0.9, epsilon=1e-8)`
-
-Adapts the learning rate per parameter using an EMA of squared gradients.
-
-```python
-from Optimization.first_order import RMSProp
-
-opt = RMSProp(lr=0.001, beta=0.9, epsilon=1e-8)
-opt.step(params, grads)
-```
-
-Update rule: `cache ← β·cache + (1−β)·g²`, then `p ← p − lr · g / (√cache + ε)`.
-
-`beta` must be in `[0, 1)`. `epsilon` must be positive.
-
----
-
-#### `Adam(lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8)`
-
-Adaptive moment estimation — maintains first and second moment estimates with bias correction.
-
-```python
-from Optimization.first_order import Adam
-
-opt = Adam(lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8)
-opt.step(params, grads)
-```
-
-Bias correction is folded into `alpha_t = lr · √(1−β2ᵗ) / (1−β1ᵗ)`, computed once per step. Both `beta1` and `beta2` must be in `[0, 1)`. `epsilon` must be positive.
-
----
-
-### `second_order.py` — Second-Order Optimizers
-
-Second-order optimizers operate on plain Python `list` parameters (not `Vector` or `Matrix`). Their `step()` methods **return** the new parameter list rather than mutating in place.
-
----
-
-#### `NewtonMethod(f, lr=1.0, hessian_h=1e-4)`
-
-Uses the numerical Hessian to compute the Newton direction `H⁻¹g`, then takes a step `p ← p − lr · H⁻¹g`.
-
-```python
-from Optimization.second_order import NewtonMethod
-
-def f(x):
-    return x[0]**2 + 2*x[1]**2
-
-opt = NewtonMethod(f=f, lr=1.0)
-params = [3.0, -2.0]
-grads  = [6.0, -8.0]
-
-params = opt.step(params, grads)   # returns new params
-```
-
-The Hessian is computed via `numerical_hessian()` from `utils.py`. If the system is singular, the method falls back to the gradient direction. For a known analytical Hessian, use `step_with_hessian(params, grads, hessian)` to skip the numerical computation.
-
-`hessian_h` is the finite difference step size (default `1e-4`).
-
----
-
-#### `BFGS(lr=1.0, eps=1e-10)`
-
-Quasi-Newton method that approximates the inverse Hessian `H⁻¹` iteratively using rank-2 updates from observed curvature.
-
-```python
-from Optimization.second_order import BFGS
-
-opt = BFGS(lr=1.0)
-params = opt.step(params, grads)   # first step uses identity H_inv
-params = opt.step(params, grads)   # subsequent steps use accumulated curvature
-```
-
-- Initialized with `H_inv = I`.
-- The inverse Hessian update uses the BFGS formula: `H⁻¹ ← H⁻¹ + ρ(1 + ρ·yᵀH⁻¹y)·ssᵀ − ρ(sHyᵀ + Hysᵀ)` where `s = xₜ − xₜ₋₁`, `y = gₜ − gₜ₋₁`, `ρ = 1/(sᵀy)`.
-- Updates are skipped when `|sᵀy| < eps` (curvature condition not met).
-- Step size is clamped to a maximum norm of `10.0` to prevent divergence.
-- `reset()` clears `H_inv`, `x_prev`, and `g_prev`.
-
----
-
-### `line_search.py` — Line Search Methods
-
-Standalone functions with no local imports. Operate on plain Python `list` or `float` parameters.
-
----
-
-#### `backtracking(f, x, grad, direction, alpha=1.0, rho=0.5, c=1e-4, max_iter=100)`
-
-Armijo backtracking line search. Reduces the step size `alpha` by factor `rho` until the Armijo sufficient decrease condition is satisfied.
-
-```python
-from Optimization.line_search import backtracking
-
-alpha = backtracking(
-    f=objective,
-    x=[1.0, 2.0],
-    grad=[0.4, 0.8],
-    direction=[-0.4, -0.8],  # must be a descent direction (slope < 0)
-    alpha=1.0,
-    rho=0.5,
-    c=1e-4
-)
-# returns float: the accepted step size
-```
-
-Condition: `f(x + α·d) ≤ f(x) + c·α·(∇f·d)`.
-
-Raises `ValueError` if `direction` is not a descent direction (i.e., `∇f · d ≥ 0`). Returns the last `alpha` if `max_iter` is exhausted without satisfying the condition.
-
-| Parameter | Meaning | Constraint |
+| Class | Update rule | Notes |
 |---|---|---|
-| `alpha` | Initial step size | `> 0` |
-| `rho` | Reduction factor | `(0, 1)` |
-| `c` | Sufficient decrease constant | `(0, 1)` |
+| `GradientDescent(lr=0.01)` | `param -= lr * grad` | Vanilla batch gradient descent |
+| `SGD(lr, momentum=0, decay=0, nesterov=False)` | `v = momentum*v + lr*g; param -= v` (or Nesterov look-ahead) | "Heavy ball" style; `decay` gives `lr_eff = lr/(1+decay*iterations)`; `nesterov=True` requires `momentum > 0` |
+| `Momentum(lr, beta=0.9)` | `v = beta*v + (1-beta)*g; param -= lr*v` | EMA-style velocity — a genuinely different rule from `SGD(momentum=b)` despite the shared hyperparameter name (see Design Notes) |
+| `AdaGrad(lr, epsilon=1e-8)` | `cache += g**2; param -= lr*g/(sqrt(cache)+eps)` | `cache` only accumulates — effective LR shrinks monotonically |
+| `RMSProp(lr=0.001, beta=0.9, epsilon=1e-8)` | `cache = beta*cache + (1-beta)*g**2; param -= lr*g/(sqrt(cache)+eps)` | Exponentially-decaying accumulator fixes AdaGrad's monotonic-shrink issue |
+| `Adam(lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8)` | Bias-corrected first/second moment estimates; `param -= lr*m_hat/(sqrt(v_hat)+eps)` | Textbook/PyTorch-compatible form (epsilon applied to `sqrt(v_hat)`, not the paper's alternate combined-alpha reformulation) |
 
----
+`AdaGrad`/`RMSProp`/`Adam` all route element-wise operations (squaring, division) through `_elementwise`/`_elementwise2`, which dispatch to `Vector.element_wise`/`Matrix.element_wise` for tensor-valued gradients — critical for `Matrix` params, where a naive `x * x` would invoke `Matrix.__mul__` (matrix multiplication) instead of squaring each entry. `_safe_sqrt` clamps to `sqrt(max(x, 0))` to absorb floating-point noise in accumulators that are mathematically guaranteed non-negative.
 
-#### `golden_section(f, a, b, tol=1e-8, max_iter=200)`
+Each optimizer exposes `reset()` (clears its own accumulator state in addition to the base class's `iterations`/`history`) and `get_config()` (includes its own hyperparameters alongside `lr`).
 
-Finds the minimum of a unimodal scalar function on `[a, b]` using the golden-section search.
+### `second_order.py`
 
-```python
-from Optimization.line_search import golden_section
-
-result = golden_section(f=lambda x: (x - 2.3)**2, a=0.0, b=5.0)
-# {
-#     "x_min": float,
-#     "f_min": float,
-#     "bracket": (a, b),      # final bracket
-#     "converged": bool
-# }
-```
-
-`a` must be strictly less than `b`. Terminates when `|b − a| < tol` or `max_iter` is reached.
-
----
-
-### `utils.py` — Numerical Utilities
-
----
-
-#### `numerical_gradient(f, x, h=1e-5)`
-
-Central difference gradient: `∂f/∂xᵢ ≈ (f(x+heᵢ) − f(x−heᵢ)) / 2h`.
+Both classes below operate on a **flat list of floats** and **return a new list** from `step()` (they don't mutate `params` in place). They use lightweight list-of-lists matrix helpers rather than `Matrix`, deliberately avoiding `Matrix`'s per-operation validation overhead in BFGS's hot inner loop.
 
 ```python
-from Optimization.utils import numerical_gradient
-
-grad = numerical_gradient(f=lambda x: x[0]**2 + x[1]**2, x=[1.0, 2.0])
-# [2.0, 4.0]
+class NewtonMethod(Optimizer):
+    def __init__(self, f, lr=1.0, hessian_h=1e-4)
+    def step(self, params, grads) -> List[float]                    # numerical Hessian via utils.numerical_hessian
+    def step_with_hessian(self, params, grads, hessian) -> List[float]  # caller-supplied Hessian
 ```
-
-`h` must be positive. Returns a `list` of the same length as `x`.
-
----
-
-#### `numerical_hessian(f, x, h=1e-4)`
-
-Second-order mixed partial derivatives via four-point finite differences:
-`∂²f/∂xᵢ∂xⱼ ≈ (f(x+heᵢ+heⱼ) − f(x+heᵢ−heⱼ) − f(x−heᵢ+heⱼ) + f(x−heᵢ−heⱼ)) / 4h²`.
+Damped Newton's method: `x -= lr * H⁻¹ @ grad`, solved via `_solve_linear` (Gauss-Jordan on the augmented system, not an explicit inverse). Checks the Newton direction's dot product with the gradient; if the Hessian has negative curvature and the raw direction would be an *ascent* direction, falls back to plain gradient descent with a logged warning rather than silently taking a bad step. Also falls back (with a warning) if the Hessian is singular.
 
 ```python
-from Optimization.utils import numerical_hessian
-
-H = numerical_hessian(f=lambda x: x[0]**2 + 2*x[1]**2, x=[1.0, 1.0])
-# [[2.0, 0.0], [0.0, 4.0]]
+class BFGS(Optimizer):
+    def __init__(self, lr=1.0, eps=1e-10, max_step=10.0)
+    def step(self, params, grads) -> List[float]
 ```
+Quasi-Newton method building an inverse-Hessian approximation from gradient history alone (Nocedal & Wright eq. 6.17). The update is applied only when the curvature condition `s·y > eps` holds **strictly positive** (not `abs(s·y) > eps`) — required to keep the inverse-Hessian approximation positive definite; allowing negative curvature through can turn the BFGS descent direction into an ascent direction. Steps are clamped to `max_step` Euclidean norm to guard against divergence while the inverse-Hessian approximation is still poor early in optimization.
 
-Returns an `n×n` `list[list[float]]`. Used internally by `NewtonMethod`.
+Module-level linear algebra helpers (all list-of-lists based): `_solve_linear(A, b, tol=1e-12)` (Gauss-Jordan with a magnitude-scaled pivot tolerance), `_validate_square_system`, `_identity(n)`, `_mat_mat`, `_outer`, `_mat_scale`, `_mat_add`, `_mat_sub`.
 
----
-
-#### `ConvergenceTracker(tol=1e-6, patience=10)`
-
-Monitors training loss for convergence and early stopping.
+### `line_search.py`
 
 ```python
-from Optimization.utils import ConvergenceTracker
-
-tracker = ConvergenceTracker(tol=1e-6, patience=10)
-
-for i in range(max_iter):
-    loss = compute_loss()
-    should_stop = tracker.update(loss)   # returns True when patience is exhausted
-    if should_stop:
-        break
-
-tracker.converged()        # True if last two losses differ by < tol
-tracker.history            # list of all recorded losses
-tracker.plot_ascii()       # prints an ASCII loss curve to stdout
-tracker.reset()            # clears all state
+backtracking(f, x, grad, direction, alpha=1.0, rho=0.5, c=1e-4, max_iter=100) -> float
 ```
-
-`update()` returns `True` when loss has not improved by more than `tol` for `patience` consecutive steps. `converged()` checks only the last two steps.
-
-`plot_ascii(width=60, height=12)` renders a block-character loss curve in the terminal. Width scales automatically to the number of iterations.
-
----
-
-#### `optimize(f, grad_f, x0, optimizer, max_iter=1000, tol=1e-6, verbose=False)`
-
-Unified optimization loop compatible with all optimizers in the package.
+Armijo backtracking: shrinks `alpha` by `rho` until `f(x + alpha*direction) <= f(x) + c*alpha*(grad·direction)`. Raises `ValueError` if `direction` isn't a descent direction (`grad·direction >= 0`), or if `alpha`/`rho`/`c`/`max_iter` are out of range. Returns the smallest step tried (with a logged warning) if `max_iter` is exhausted without satisfying the condition. Objective-function exceptions are wrapped in `RuntimeError` with context.
 
 ```python
-from Optimization.utils import optimize
-from Optimization.first_order import Adam
-
-def f(x):
-    return (x[0] - 1)**2 + (x[1] + 2)**2
-
-def grad_f(x):
-    return [2*(x[0]-1), 2*(x[1]+2)]
-
-opt = Adam(lr=0.01)
-result = optimize(f, grad_f, x0=[0.0, 0.0], optimizer=opt, max_iter=500, verbose=True)
-# {
-#     "x": list,            # final parameters
-#     "loss": float,        # f(x) at termination
-#     "iterations": int,
-#     "history": list,      # loss at each recorded step
-#     "converged": bool     # True if final gradient norm < tol
-# }
+golden_section(f, a, b, tol=1e-8, max_iter=200) -> dict
 ```
+Golden-section search for the minimum of a unimodal 1D function on `[a, b]`. Returns `{"x_min", "f_min", "bracket", "converged"}`. Requires `a < b`, both finite; raises `ValueError` otherwise, or for non-positive `tol`/`max_iter`.
 
-Convergence is declared when `‖∇f(x)‖ < tol`. The loop also uses `ConvergenceTracker` with `patience=20` to detect stagnation. First-order optimizers mutate `params` in place; second-order optimizers return new params — both are handled transparently.
+### `utils.py`
+
+```python
+numerical_gradient(f, x, h=1e-5) -> List[float]
+```
+Central-difference gradient, `2*len(x)` evaluations of `f`. Defensively copies `x` to a plain list first — `x[:]` is a *view*, not a copy, for NumPy arrays, so without this, in-place perturbation during finite differencing would silently corrupt the caller's original array (relevant when interoperating with `scipy.optimize`, which passes NumPy arrays to `jac`/`hess`).
+
+```python
+numerical_hessian(f, x, h=1e-4) -> List[List[float]]
+```
+Central-difference Hessian: 3-point diagonal formula, 4-point mixed-partial off-diagonal formula, exploiting symmetry to evaluate each off-diagonal pair once — `2n² + 1` evaluations instead of a naive `4n²` (which would also inconsistently use step `2h` instead of `h` on the diagonal). Logs a warning above `n=50` parameters (O(n²) cost). Same NumPy-array defensive-copy behavior as `numerical_gradient`.
+
+```python
+class ConvergenceTracker:
+    def __init__(self, tol=1e-6, patience=10)
+    def update(self, loss: float) -> bool          # True if no improvement for `patience` consecutive calls
+    def converged(self) -> bool                     # last two losses differ by < tol
+    def reset(self) -> None
+    def plot_ascii(self, width=60, height=12) -> None
+```
+Plateau-based early-stopping signal. `converged()` is a simple two-point check (documented as weaker than `update`'s patience-based signal — can false-positive on a loss oscillating within a band smaller than `tol`). `plot_ascii` prints a crude ASCII bar chart of loss history; raises `ValueError` for `height < 2` (avoids a division-by-zero when computing row thresholds).
+
+```python
+optimize(f, grad_f, x0, optimizer, max_iter=1000, tol=1e-6, patience=20, verbose=False) -> dict
+```
+Generic driver loop: runs `optimizer` on `f` from `x0` until the gradient norm drops below `tol` or the loss plateaus for `patience` iterations (via `ConvergenceTracker`), or `max_iter` is reached. Correctly dispatches both optimizer calling conventions: `result = optimizer.step(x, grads); if result is not None: x = result`. Returns `{"x", "loss", "iterations", "history", "converged", "stop_reason"}`. Raises `ValueError` for empty `x0` or invalid `max_iter`/`tol`, `TypeError` if `optimizer` lacks a callable `step`.
+
+Also exposes flat-vector helpers used internally and by `second_order.py`: `_vec_add`, `_vec_sub`, `_vec_scale`, `_vec_dot`, `_vec_norm`, `_mat_vec` — deliberately plain-list based (no `Vector`/`Matrix` validation overhead) for use in hot loops.
 
 ---
 
 ## Example Session
 
 ```python
-import math
-from Optimization.first_order import Adam, SGD, RMSProp
-from Optimization.second_order import NewtonMethod, BFGS
-from Optimization.line_search import backtracking, golden_section
-from Optimization.utils import numerical_gradient, optimize, ConvergenceTracker
+from first_order import GradientDescent, Adam, RMSProp
+from second_order import NewtonMethod, BFGS
+from line_search import backtracking, golden_section
+from utils import numerical_gradient, optimize, ConvergenceTracker
 
-# --- Rosenbrock function ---
-def rosenbrock(x):
-    return (1 - x[0])**2 + 100*(x[1] - x[0]**2)**2
+# First-order: minimize f(x) = x^2
+opt = Adam(lr=0.1)
+params = [10.0]
+for _ in range(200):
+    grad = [2 * params[0]]
+    opt.step(params, grad)
+round(params[0], 2)                     # 0.0
 
-def rosenbrock_grad(x):
-    dx0 = -2*(1 - x[0]) - 400*x[0]*(x[1] - x[0]**2)
-    dx1 = 200*(x[1] - x[0]**2)
-    return [dx0, dx1]
+# Generic driver loop (works with either optimizer family)
+f = lambda x: sum(xi**2 for xi in x)
+grad_f = lambda x: numerical_gradient(f, x)
+result = optimize(f, grad_f, [5.0, -3.0], GradientDescent(lr=0.1), max_iter=500)
+result["loss"], result["converged"], result["stop_reason"]
 
-# Adam
-result = optimize(rosenbrock, rosenbrock_grad, x0=[-1.0, 1.0],
-                  optimizer=Adam(lr=0.01), max_iter=5000, verbose=True)
-print(result["x"], result["converged"])
+result_bfgs = optimize(f, grad_f, [5.0, -3.0], BFGS(lr=1.0), max_iter=100)
 
-# SGD with momentum and decay
-result = optimize(rosenbrock, rosenbrock_grad, x0=[-1.0, 1.0],
-                  optimizer=SGD(lr=0.001, momentum=0.9, decay=1e-4), max_iter=5000)
-print(result["loss"])
+# Second-order: Newton's method on a quadratic bowl
+g = lambda x: (x[0] - 3)**2 + 2*(x[1] + 1)**2
+nm = NewtonMethod(g, lr=1.0)
+x = [0.0, 0.0]
+for _ in range(5):
+    x = nm.step(x, numerical_gradient(g, x))
+round(x[0], 2), round(x[1], 2)          # (3.0, -1.0)
 
-# Newton's Method
-opt = NewtonMethod(f=rosenbrock, lr=1.0)
-result = optimize(rosenbrock, rosenbrock_grad, x0=[0.5, 0.5], optimizer=opt, max_iter=50)
-print(result["x"])
-
-# BFGS
-result = optimize(rosenbrock, rosenbrock_grad, x0=[0.0, 0.0],
-                  optimizer=BFGS(lr=1.0), max_iter=200)
-print(result["x"])
-
-# Backtracking line search
-alpha = backtracking(rosenbrock, x=[0.0, 0.0], grad=rosenbrock_grad([0.0, 0.0]),
-                     direction=[-g for g in rosenbrock_grad([0.0, 0.0])])
-print(f"Step size: {alpha:.6f}")
-
-# Golden section on a scalar function
-res = golden_section(lambda x: (x - 2.5)**2 + 1, a=0.0, b=5.0)
-print(res)
-
-# Numerical gradient check
-grad_numerical = numerical_gradient(rosenbrock, [1.0, 1.0])
-grad_analytical = rosenbrock_grad([1.0, 1.0])
-print(grad_numerical, grad_analytical)
-
-# Convergence tracker
-tracker = ConvergenceTracker(tol=1e-5, patience=5)
-tracker.update(1.0)
-tracker.update(0.5)
-tracker.update(0.5)
-tracker.plot_ascii()
+# Line search
+alpha = backtracking(lambda x: x[0]**2, [3.0], grad=[6.0], direction=[-1.0])
+gs = golden_section(lambda x: (x - 2.0)**2 + 1.0, 0.0, 5.0)
 ```
-
----
-
-## Error Reference
-
-| Situation | Exception |
-|---|---|
-| `lr <= 0` | `ValueError` |
-| `momentum` outside `[0, 1)` | `ValueError` |
-| `decay < 0` in SGD | `ValueError` |
-| `beta`, `beta1`, `beta2` outside `[0, 1)` | `ValueError` |
-| `epsilon <= 0` | `ValueError` |
-| `hessian_h <= 0` in NewtonMethod | `ValueError` |
-| `eps <= 0` in BFGS | `ValueError` |
-| Mismatched `params` and `grads` lengths | `ValueError` |
-| Singular Hessian in NewtonMethod | Falls back to gradient direction (no exception) |
-| Non-descent direction in `backtracking` | `ValueError` |
-| `alpha <= 0`, `rho` or `c` outside `(0,1)` in `backtracking` | `ValueError` |
-| `a >= b` in `golden_section` | `ValueError` |
-| `tol <= 0` or `patience < 1` in `ConvergenceTracker` | `ValueError` |
-| `max_iter < 1` or `tol <= 0` in `optimize` | `ValueError` |
-| `h <= 0` in `numerical_gradient`/`numerical_hessian` | `ValueError` |
-| Unsupported parameter type in `_zeros_like` | `TypeError` |
 
 ---
 
 ## Design Notes
 
-- **Polymorphic parameters:** First-order optimizers work with `float`, `Vector`, and `Matrix` parameters in the same `step()` call. The `_vec_op` and `_vec_op2` helpers in `first_order.py` apply element-wise lambdas across both scalar and `Vector` types. `Matrix` support is inherited through `Vector`'s arithmetic operators.
-- **In-place vs. return semantics:** First-order optimizers mutate `params[i]` in place (they reassign list elements). Second-order optimizers return a new list. The `optimize()` loop handles both: `result = optimizer.step(x, grads); if result is not None: x = result`.
-- **Lazy state initialization:** All optimizers initialize velocity, cache, and moment buffers to `None` and allocate zeros on the first `step()` call. This avoids requiring the parameter shape at construction time.
-- **Adam bias correction:** Rather than maintaining `m_hat` and `v_hat` as separate variables, bias correction is folded into a single corrected learning rate `alpha_t` computed once per iteration.
-- **BFGS curvature check:** The inverse Hessian update is skipped when `|sᵀy| < eps`. This guards against indefinite updates when the curvature condition is violated (e.g., non-convex regions).
-- **`line_search.py` has no local imports:** It operates entirely on plain Python lists and floats, making it usable independently of the rest of the package.
-- **`numerical_hessian` requires 4n² function evaluations:** It is exact up to O(h²) error but expensive for high-dimensional problems. Use analytical Hessians via `step_with_hessian()` in performance-critical settings.
+- **Two calling conventions, one driver loop.** First-order optimizers
+  mutate `params` in place (matching the common deep-learning idiom of
+  updating parameter tensors directly); second-order optimizers return a
+  new list because Newton's method/BFGS need the *entire* current vector
+  at once to solve a linear system or apply an inverse-Hessian
+  approximation — an in-place per-element update doesn't make sense for
+  them. `utils.optimize()` handles both transparently by checking
+  whether `step()`'s return value is `None`. This contract is documented
+  once, in `base.py`'s module docstring, and referenced everywhere else
+  rather than re-explained.
+- **`SGD(momentum=b)` and `Momentum(beta=b)` are deliberately different
+  update rules** despite the shared hyperparameter name/value. `SGD`'s
+  momentum ("heavy ball") accumulates raw `lr*g` terms in its velocity;
+  `Momentum`'s velocity is an exponential moving average of the raw
+  gradient `g` (structurally closer to Adam's first moment, without bias
+  correction). Both are standard in different textbooks/frameworks; a
+  regression test (`test_differs_from_sgd_momentum_for_same_beta`)
+  explicitly guards against them accidentally converging to the same
+  trajectory.
+- **Element-wise operations must route through `Vector`/`Matrix`'s own
+  `element_wise` methods for tensor-valued gradients.** `AdaGrad`,
+  `RMSProp`, and `Adam` all need to square gradients and divide
+  element-wise; naively calling `grad * grad` on a `Matrix` would invoke
+  `Matrix.__mul__` (real matrix multiplication) instead of squaring each
+  entry — a completely different (and shape-incompatible, for
+  non-square gradients) operation. `_elementwise`/`_elementwise2`
+  dispatch correctly based on type, and a regression test
+  (`test_matrix_gradient_elementwise_square_not_matmul`) locks this in.
+- **Adam uses the textbook/PyTorch-compatible bias-correction formula**
+  (explicit `m_hat`, `v_hat`, with `epsilon` applied to `sqrt(v_hat)`)
+  rather than the paper's alternate single-combined-learning-rate
+  reformulation. The two are only "almost equivalent" — they diverge
+  when `epsilon` is non-negligible relative to the gradient — and this
+  implementation deliberately matches what "Adam" means in practice for
+  anyone comparing against PyTorch/TensorFlow. Guarded by
+  `test_matches_textbook_formula_manually` with a large `epsilon` chosen
+  specifically to make the two formulas visibly diverge if the wrong one
+  were used.
+- **Newton's method detects and recovers from non-descent directions.**
+  A raw Newton step (`H⁻¹ @ grad`) assumes a positive-definite Hessian;
+  near a saddle point or in a negative-curvature region, the "Newton
+  direction" can actually point *uphill*. Rather than silently taking
+  a step that increases the loss, `_newton_direction` checks
+  `direction · grad > 0` and falls back to plain gradient descent (with
+  a logged warning) if it fails — a lightweight safeguard well short of
+  a full modified-Newton method (eigenvalue clamping,
+  Levenberg-Marquardt damping), which is explicitly out of scope.
+- **BFGS's curvature condition is strict (`s·y > eps`), not
+  `abs(s·y) > eps`.** Allowing strongly *negative* curvature through the
+  update would corrupt the positive-definiteness of the inverse-Hessian
+  approximation, which can flip the BFGS search direction into an
+  ascent direction. This was a real bug class, not a hypothetical —
+  `test_curvature_condition_preserves_positive_definiteness` constructs
+  a specific negative-curvature scenario and verifies `H_inv` is left
+  untouched (still positive definite) rather than corrupted.
+- **`_solve_linear` solves the augmented system directly rather than
+  computing `A⁻¹` and multiplying** — roughly half the arithmetic (`n+1`
+  augmented columns vs. `2n` for a full inversion), which matters since
+  Newton's method calls this every iteration. Its pivot tolerance is
+  scaled by the matrix's own magnitude, the same pattern used in
+  `Matrix.eigenvectors` for large-magnitude systems (e.g.
+  high-curvature Hessians).
+- **`numerical_hessian` exploits symmetry and gets the diagonal step
+  size right.** A naive implementation might apply the 4-point
+  mixed-partial formula uniformly to every `(i, j)` including the
+  diagonal, which silently uses an effective step of `2h` instead of
+  `h` there (because `+=`/`-=` compose on the same index) and wastes
+  evaluations re-computing `f(x)` redundantly. The dedicated diagonal
+  formula and off-diagonal symmetry exploitation together roughly halve
+  the evaluation count (`2n²+1` vs. a naive `4n²`) — both effects are
+  covered by dedicated regression tests.
+- **NumPy-array safety in finite differences.** `numerical_gradient`
+  and `numerical_hessian` both defensively copy their input to a plain
+  Python list before perturbing coordinates, since `x[:]` is a *view*
+  (not a copy) for NumPy arrays — without this, in-place perturbation
+  during finite-differencing would silently corrupt the caller's
+  original array. This matters directly for interoperating with
+  `scipy.optimize`, which passes NumPy arrays to `jac`/`hess` callbacks;
+  both functions are tested for exact compatibility with
+  `scipy.optimize.minimize(method="Newton-CG")`.
+- **`ConvergenceTracker.plot_ascii` guards its own division.** `height`
+  is used as a divisor (`row / (height - 1)`) when computing per-row
+  thresholds; `height < 2` is rejected up front with a clear
+  `ValueError` rather than raising an opaque `ZeroDivisionError`.
+- **`optimize()`'s early-stopping is genuinely wired up**, not just
+  computed and discarded — `ConvergenceTracker.update()`'s return value
+  is checked every iteration and triggers a `"plateau"` stop reason,
+  verified by a dedicated regression test using a constant loss and a
+  gradient that never drops below the gradient-norm threshold (isolating
+  the plateau-detection path specifically).
+
+---
+
+## Test Coverage
+
+Each library file has a matching `tests/test_*.py`. `test_line_search.py`
+and `test_second_order.py` cross-check against `scipy.optimize`
+(`minimize_scalar`, `minimize(method="Newton-CG"/"BFGS")`, including on
+the Rosenbrock function). `test_first_order.py` verifies convergence on
+`f(x)=x²` for every optimizer plus optimizer-specific behavioral
+properties (Adam's first-step-≈-lr property, AdaGrad's monotonically
+shrinking step size, the Matrix-gradient elementwise-not-matmul fix).
+`test_utils.py` and `test_second_order.py` include NumPy-array
+view-vs-copy regression tests. `test_base.py` covers the shared
+`Optimizer` contract and `_zeros_like` across `float`/`Vector`/`Matrix`.
+
+Run the full suite with verbose output:
+
+```bash
+pytest tests/ -v
+```
 
 ---
 
 ## Roadmap Context
 
-This package is **Project 10** of 60 in the Engineering Redemption Arc curriculum. It depends on:
-
-- **`Vectors/vector.py`** — Project 1
-- **`Matrix/matrix.py`** — Project 2
-
-It underpins every model implementation in Phase 2 (Projects 11–25):
-
-- **Linear and logistic regression** — gradient descent and Adam are the primary training loops.
-- **Neural networks** — SGD with momentum, RMSProp, and Adam are the standard optimizers.
-- **Second-order methods** — Newton and BFGS are used where curvature information accelerates convergence (small-scale problems, quasi-Newton fine-tuning).
-- **`ConvergenceTracker` and `optimize()`** — provide the standardized training loop reused across all subsequent model implementations.
+`Optimization/` is the fifth module in **Phase 1: Math Foundations**,
+building on `Vectors/vector.py` and `Matrix/matrix.py` for
+tensor-valued first-order optimizer parameters. It completes the
+numerical-methods foundation — linear algebra, probability/statistics,
+Bayesian inference, and now optimization — that later phases (from-scratch
+neural networks, classical ML algorithms trained via gradient descent)
+will depend on directly.
