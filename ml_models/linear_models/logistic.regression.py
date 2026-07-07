@@ -428,3 +428,61 @@ class LogisticRegressionL1(LogisticRegression):
             raise ValueError(f"lam must be non-negative, got {lam}")
         self.lam = lam
         self.loss_history: List[float] = []
+
+    def fit(self, X: Matrix, y: Vector) -> "LogisticRegressionL1":
+        """Fit the L1-regularized model via proximal gradient descent (ISTA).
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix of shape (n_samples, n_features).
+        y : Vector
+            Binary target vector (0 or 1) of length n_samples.
+
+        Returns
+        -------
+        LogisticRegressionL1
+            The fitted instance, for method chaining.
+
+        Raises
+        ------
+        TypeError
+            If `X` is not a `Matrix` or `y` is not a `Vector`.
+        ValueError
+            If `X`/`y` are empty or mismatched, or `y` contains a
+            non-binary label.
+        """
+        self._validate_Xy(X, y)
+        _validate_binary_targets(y)
+
+        self.n_features_in_ = X.n_cols
+        design = self._add_bias_column(X) if self.fit_intercept else X
+        n_samples, n_features = design.n_rows, design.n_cols
+        self.w = Vector([0.0] * n_features)
+        self.loss_history = []
+        penalty_start = 1 if self.fit_intercept else 0
+
+        inv_n = 1.0 / n_samples
+        threshold = self.lr * self.lam * inv_n
+
+        for iteration in range(self.n_iter):
+            y_pred = sigmoid(design * self.w)
+            error = y_pred - y
+            gradient = design.transpose() * error
+            weights = list(self.w.components)
+
+            for j in range(n_features):
+                step = weights[j] - self.lr * gradient[j] * inv_n
+                weights[j] = step if j < penalty_start else _soft_threshold(step, threshold)
+
+            self.w = Vector(weights)
+
+            if iteration % 100 == 0 or iteration == self.n_iter - 1:
+                l1_penalty = (self.lam * inv_n) * sum(
+                    abs(self.w[j]) for j in range(penalty_start, n_features)
+                )
+                self.loss_history.append(binary_cross_entropy(list(y), list(y_pred)) + l1_penalty)
+
+        self._is_fitted = True
+        return self
+
