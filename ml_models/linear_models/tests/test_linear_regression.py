@@ -265,3 +265,71 @@ class TestGDLinearRegressionAgainstOLS:
         ols_w = ols_model.parameters()[0].components
         for gd_coef, ols_coef in zip(gd_w, ols_w):
             assert gd_coef == pytest.approx(ols_coef, abs=1e-2)
+
+
+class TestInputValidationAndEdgeCases:
+    """Every model must fail fast and specifically on malformed input or misuse."""
+
+    @pytest.mark.parametrize(
+        "model_cls", [LinearRegression, RidgeRegression, LassoRegression, GDLinearRegression]
+    )
+    def test_predict_before_fit_raises_not_fitted_error(self, model_cls, regression_dataset) -> None:
+        model = model_cls()
+        with pytest.raises(NotFittedError):
+            model.predict(regression_dataset["X_test"])
+
+    @pytest.mark.parametrize(
+        "model_cls", [LinearRegression, RidgeRegression, LassoRegression, GDLinearRegression]
+    )
+    def test_fit_rejects_mismatched_sample_counts(self, model_cls, regression_dataset) -> None:
+        y_wrong_length = Vector(list(regression_dataset["y_train"])[:-1])
+        with pytest.raises(ValueError):
+            model_cls().fit(regression_dataset["X_train"], y_wrong_length)
+
+    @pytest.mark.parametrize(
+        "model_cls", [LinearRegression, RidgeRegression, LassoRegression, GDLinearRegression]
+    )
+    def test_fit_rejects_non_matrix_X(self, model_cls, regression_dataset) -> None:
+        with pytest.raises(TypeError):
+            model_cls().fit([[1.0, 2.0], [3.0, 4.0]], regression_dataset["y_train"][:2])
+
+    def test_predict_rejects_feature_count_mismatch(self, regression_dataset) -> None:
+        model = LinearRegression().fit(regression_dataset["X_train"], regression_dataset["y_train"])
+        truncated = _to_matrix(regression_dataset["X_test_np"][:, :N_FEATURES - 2])
+        with pytest.raises(ValueError):
+            model.predict(truncated)
+
+    def test_ridge_rejects_negative_lambda(self, regression_dataset) -> None:
+        with pytest.raises(ValueError):
+            RidgeRegression().fit(
+                regression_dataset["X_train"], regression_dataset["y_train"], lam=-1.0
+            )
+
+    def test_lasso_rejects_non_positive_tolerance(self, regression_dataset) -> None:
+        with pytest.raises(ValueError):
+            LassoRegression().fit(
+                regression_dataset["X_train"], regression_dataset["y_train"], tol=0.0
+            )
+
+    def test_gd_rejects_non_positive_learning_rate(self, regression_dataset) -> None:
+        with pytest.raises(ValueError):
+            GDLinearRegression().fit(
+                regression_dataset["X_train"], regression_dataset["y_train"], lr=0.0
+            )
+
+    def test_gd_rejects_invalid_optimizer_type(self, regression_dataset) -> None:
+        with pytest.raises(TypeError):
+            GDLinearRegression().fit(
+                regression_dataset["X_train"], regression_dataset["y_train"], optimizer="not_an_optimizer"
+            )
+
+    def test_parameters_length_matches_bias_convention(self, regression_dataset) -> None:
+        with_intercept = LinearRegression(fit_intercept=True).fit(
+            regression_dataset["X_train"], regression_dataset["y_train"]
+        )
+        without_intercept = LinearRegression(fit_intercept=False).fit(
+            regression_dataset["X_train"], regression_dataset["y_train"]
+        )
+        assert len(with_intercept.parameters()[0]) == N_FEATURES + 1
+        assert len(without_intercept.parameters()[0]) == N_FEATURES
+
