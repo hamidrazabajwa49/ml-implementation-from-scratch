@@ -366,3 +366,65 @@ class LogisticRegressionL2(LogisticRegression):
         self._is_fitted = True
         return self
 
+
+
+class LogisticRegressionL1(LogisticRegression):
+    """Logistic regression with an L1 (lasso-style) penalty on the feature weights.
+
+    Minimizes the L1-penalized binary cross-entropy loss:
+
+    ``L(w) = BCE(w) + (lam / n_samples) * ||w_features||_1``
+
+    via proximal gradient descent (ISTA): an ordinary gradient step on
+    the smooth cross-entropy term is followed by an element-wise
+    soft-thresholding (shrinkage) step on the penalized coordinates.
+    The intercept term (if `fit_intercept` is True) is excluded from
+    the penalty and receives a plain (unshrunk) gradient step.
+
+    This proximal update requires an explicit, fixed step size and
+    therefore does not compose with adaptive optimizers such as `Adam`
+    without additional care; unlike `LogisticRegression` and
+    `LogisticRegressionL2`, this class always uses plain gradient
+    descent with learning rate `self.lr` and does not accept a
+    pluggable `optimizer`.
+
+    Parameters
+    ----------
+    lam : float, optional
+        L1 regularization strength; must be non-negative. Defaults to
+        0.1.
+    lr : float, optional
+        Learning rate for the proximal gradient descent step; must be
+        positive. Defaults to 0.01.
+    n_iter : int, optional
+        Number of proximal gradient descent iterations; must be at
+        least 1. Defaults to 1000.
+    fit_intercept : bool, optional
+        Whether to prepend a bias (intercept) column of ones to the
+        design matrix. Defaults to True.
+
+    Attributes
+    ----------
+    loss_history : list of float
+        Regularized loss value recorded roughly every 100 iterations
+        during the most recent `fit()` call.
+
+    Raises
+    ------
+    ValueError
+        If `lam` is negative, `lr` is not positive, or `n_iter` is
+        less than 1.
+    """
+
+    def __init__(
+        self,
+        lam: float = 0.1,
+        lr: float = 0.01,
+        n_iter: int = 1000,
+        fit_intercept: bool = True,
+    ) -> None:
+        super().__init__(lr=lr, n_iter=n_iter, fit_intercept=fit_intercept)
+        if lam < 0.0:
+            raise ValueError(f"lam must be non-negative, got {lam}")
+        self.lam = lam
+        self.loss_history: List[float] = []
