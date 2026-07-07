@@ -136,3 +136,101 @@ class TestLinearRegressionAgainstSklearn:
         assert sk_model.intercept_ == 0.0
         for our_coef, sk_coef in zip(our_w, sk_model.coef_):
             assert our_coef == pytest.approx(sk_coef, abs=1e-6)
+
+
+class TestRidgeRegressionAgainstSklearn:
+    """Closed-form ridge regression must match scikit-learn's `Ridge` (identical convention)."""
+
+    LAM = 2.0
+
+    def test_r2_score_matches_sklearn(self, regression_dataset: Dict[str, object]) -> None:
+        ours = RidgeRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"], lam=self.LAM
+        )
+        sk_model = SkRidge(alpha=self.LAM).fit(
+            regression_dataset["X_train_np"], regression_dataset["y_train_np"]
+        )
+
+        our_r2 = ours.score(regression_dataset["X_test"], regression_dataset["y_test"])
+        sk_r2 = sk_r2_score(
+            regression_dataset["y_test_np"], sk_model.predict(regression_dataset["X_test_np"])
+        )
+
+        assert our_r2 == pytest.approx(sk_r2, abs=1e-6)
+
+    def test_coefficients_match_sklearn(self, regression_dataset: Dict[str, object]) -> None:
+        ours = RidgeRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"], lam=self.LAM
+        )
+        sk_model = SkRidge(alpha=self.LAM).fit(
+            regression_dataset["X_train_np"], regression_dataset["y_train_np"]
+        )
+
+        our_w = ours.parameters()[0].components
+        assert our_w[0] == pytest.approx(sk_model.intercept_, abs=1e-6)
+        for our_coef, sk_coef in zip(our_w[1:], sk_model.coef_):
+            assert our_coef == pytest.approx(sk_coef, abs=1e-6)
+
+    def test_zero_lambda_matches_ordinary_least_squares(
+        self, regression_dataset: Dict[str, object]
+    ) -> None:
+        ridge = RidgeRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"], lam=0.0
+        )
+        ols = LinearRegression().fit(regression_dataset["X_train"], regression_dataset["y_train"])
+
+        ridge_w = ridge.parameters()[0].components
+        ols_w = ols.parameters()[0].components
+        for ridge_coef, ols_coef in zip(ridge_w, ols_w):
+            assert ridge_coef == pytest.approx(ols_coef, abs=1e-6)
+
+
+class TestLassoRegressionAgainstSklearn:
+    """Coordinate-descent lasso must closely track scikit-learn's `Lasso` (same objective)."""
+
+    LAM = 0.5
+
+    def test_r2_score_close_to_sklearn(self, regression_dataset: Dict[str, object]) -> None:
+        ours = LassoRegression().fit(
+            regression_dataset["X_train"],
+            regression_dataset["y_train"],
+            lam=self.LAM,
+            n_iters=2000,
+            tol=1e-6,
+        )
+        sk_model = SkLasso(alpha=self.LAM, max_iter=10_000).fit(
+            regression_dataset["X_train_np"], regression_dataset["y_train_np"]
+        )
+
+        our_r2 = ours.score(regression_dataset["X_test"], regression_dataset["y_test"])
+        sk_r2 = sk_r2_score(
+            regression_dataset["y_test_np"], sk_model.predict(regression_dataset["X_test_np"])
+        )
+
+        assert our_r2 == pytest.approx(sk_r2, abs=1e-3)
+
+    def test_coefficients_close_to_sklearn(self, regression_dataset: Dict[str, object]) -> None:
+        ours = LassoRegression().fit(
+            regression_dataset["X_train"],
+            regression_dataset["y_train"],
+            lam=self.LAM,
+            n_iters=2000,
+            tol=1e-6,
+        )
+        sk_model = SkLasso(alpha=self.LAM, max_iter=10_000).fit(
+            regression_dataset["X_train_np"], regression_dataset["y_train_np"]
+        )
+
+        our_w = ours.parameters()[0].components
+        assert our_w[0] == pytest.approx(sk_model.intercept_, abs=1e-2)
+        for our_coef, sk_coef in zip(our_w[1:], sk_model.coef_):
+            assert our_coef == pytest.approx(sk_coef, abs=1e-2)
+
+    def test_large_lambda_produces_sparse_coefficients(
+        self, regression_dataset: Dict[str, object]
+    ) -> None:
+        ours = LassoRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"], lam=50.0, n_iters=2000
+        )
+        feature_coefficients = ours.parameters()[0].components[1:]
+        assert any(coef == 0.0 for coef in feature_coefficients)
