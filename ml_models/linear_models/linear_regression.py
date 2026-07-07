@@ -406,3 +406,155 @@ class GDLinearRegression(MLModel):
         """
         self._check_is_fitted()
         return [self.w]
+
+
+class RidgeRegression(MLModel):
+    """L2-regularized (ridge) linear regression, solved in closed form.
+
+    Fits ``y = X @ w`` by minimizing the L2-penalized residual sum of
+    squares:
+
+    ``||y - Xw||^2 + lam * ||w_features||^2``
+
+    where the intercept term (if `fit_intercept` is True) is excluded
+    from the penalty, following the standard ridge regression
+    convention. The closed-form solution is:
+
+    ``w = (X^T X + lam * L)^-1 X^T y``
+
+    where `L` is a diagonal matrix with `lam` on every feature
+    coefficient's diagonal entry and 0 at the intercept's position.
+
+    Parameters
+    ----------
+    fit_intercept : bool, optional
+        Whether to prepend a bias (intercept) column of ones to the
+        design matrix. Defaults to True.
+    """
+
+    def __init__(self, fit_intercept: bool = True) -> None:
+        super().__init__()
+        self.fit_intercept = fit_intercept
+        self.n_features_in_: Optional[int] = None
+
+    def fit(self, X: Matrix, y: Vector, lam: float = 1.0) -> "RidgeRegression":
+        """Fit the ridge regression model.
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix of shape (n_samples, n_features).
+        y : Vector
+            Target vector of length n_samples.
+        lam : float, optional
+            L2 regularization strength; must be non-negative. A value
+            of 0 reduces to ordinary least squares.
+
+        Returns
+        -------
+        RidgeRegression
+            The fitted instance, for method chaining.
+
+        Raises
+        ------
+        TypeError
+            If `X` is not a `Matrix` or `y` is not a `Vector`.
+        ValueError
+            If `X`/`y` are empty or mismatched, or `lam` is negative.
+        SingularMatrixError
+            If the regularized Gram matrix remains singular even after
+            the ridge-corrected fallback in `_safe_inverse`.
+        """
+        self._validate_Xy(X, y)
+        if lam < 0.0:
+            raise ValueError(f"lam must be non-negative, got {lam}")
+
+        self.n_features_in_ = X.n_cols
+        design = self._add_bias_column(X) if self.fit_intercept else X
+        n_features = design.n_cols
+        design_t = design.transpose()
+        gram = design_t * design
+
+        penalty_start = 1 if self.fit_intercept else 0
+        penalty_data = [
+            [lam if (i == j and i >= penalty_start) else 0.0 for j in range(n_features)]
+            for i in range(n_features)
+        ]
+        penalty = Matrix(penalty_data)
+
+        gram_inv = _safe_inverse(gram + penalty)
+        self.w: Vector = gram_inv * (design_t * y)
+
+        self._is_fitted = True
+        return self
+
+    def predict(self, X: Matrix) -> Vector:
+        """Predict target values for new samples.
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix of shape (n_samples, n_features_in_).
+
+        Returns
+        -------
+        Vector
+            Predicted values, one per row of `X`.
+
+        Raises
+        ------
+        NotFittedError
+            If called before `fit()`.
+        TypeError
+            If `X` is not a `Matrix`.
+        ValueError
+            If `X` is empty or its column count does not match the
+            number of features observed during `fit()`.
+        """
+        self._check_is_fitted()
+        self._validate_X(X, expected_n_features=self.n_features_in_)
+        design = self._add_bias_column(X) if self.fit_intercept else X
+        return design * self.w
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        """Compute the coefficient of determination (R-squared) on (X, y).
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix.
+        y : Vector
+            True target values corresponding to the rows of `X`.
+
+        Returns
+        -------
+        float
+            The R-squared score; see `ml_models.metrics.r2_score`.
+
+        Raises
+        ------
+        NotFittedError
+            If called before `fit()`.
+        TypeError, ValueError
+            See `predict()` and `ml_models.metrics.r2_score`.
+        """
+        self._validate_Xy(X, y)
+        return r2_score(y, self.predict(X))
+
+    def parameters(self) -> List[Parameter]:
+        """Return the fitted parameter vector.
+
+        Returns
+        -------
+        list of Vector
+            A single-element list ``[w]``. If `fit_intercept` is True,
+            ``w[0]`` is the (unpenalized) intercept and the remaining
+            entries are the L2-penalized feature coefficients.
+
+        Raises
+        ------
+        NotFittedError
+            If called before `fit()`.
+        """
+        self._check_is_fitted()
+        return [self.w]
