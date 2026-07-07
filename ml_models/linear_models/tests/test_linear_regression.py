@@ -234,3 +234,34 @@ class TestLassoRegressionAgainstSklearn:
         )
         feature_coefficients = ours.parameters()[0].components[1:]
         assert any(coef == 0.0 for coef in feature_coefficients)
+
+class TestGDLinearRegressionAgainstOLS:
+    """Gradient-descent linear regression should converge close to the closed-form solution."""
+
+    def test_r2_score_close_to_closed_form_ols(self, regression_dataset: Dict[str, object]) -> None:
+        gd_model = GDLinearRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"], n_iter=3000, lr=0.1
+        )
+        ols_model = LinearRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"]
+        )
+
+        gd_r2 = gd_model.score(regression_dataset["X_test"], regression_dataset["y_test"])
+        ols_r2 = ols_model.score(regression_dataset["X_test"], regression_dataset["y_test"])
+
+        assert gd_r2 == pytest.approx(ols_r2, abs=1e-3)
+
+    def test_coefficients_close_to_closed_form_ols(
+        self, regression_dataset: Dict[str, object]
+    ) -> None:
+        gd_model = GDLinearRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"], n_iter=3000, lr=0.1
+        )
+        ols_model = LinearRegression().fit(
+            regression_dataset["X_train"], regression_dataset["y_train"]
+        )
+
+        gd_w = gd_model.parameters()[0].components
+        ols_w = ols_model.parameters()[0].components
+        for gd_coef, ols_coef in zip(gd_w, ols_w):
+            assert gd_coef == pytest.approx(ols_coef, abs=1e-2)
