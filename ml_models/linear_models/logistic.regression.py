@@ -248,3 +248,38 @@ class LogisticRegression(MLModel):
         """
         self._check_is_fitted()
         return [self.w]
+
+
+class LogisticRegressionL2(LogisticRegression):
+    """Logistic regression with an L2 (ridge-style) penalty on the feature weights.
+
+    Minimizes the L2-penalized binary cross-entropy loss:
+
+    ``L(w) = BCE(w) + (lam / (2 * n_samples)) * ||w_features||^2``
+
+    where the intercept term (if `fit_intercept` is True) is excluded
+    from the penalty, following the standard regularized-GLM
+    convention. The corresponding gradient adds ``(lam / n_samples) *
+    w_j`` to each penalized coefficient's gradient.
+
+    Parameters
+    ----------
+    lam : float, optional
+        L2 regularization strength; must be non-negative. Defaults to
+        1.0.
+    lr : float, optional
+        Learning rate used only when `fit()` is called without an
+        explicit `optimizer`; must be positive. Defaults to 0.01.
+    n_iter : int, optional
+        Number of gradient-descent iterations; must be at least 1.
+        Defaults to 1000.
+    fit_intercept : bool, optional
+        Whether to prepend a bias (intercept) column of ones to the
+        design matrix. Defaults to True.
+
+    Raises
+    ------
+    ValueError
+        If `lam` is negative, `lr` is not positive, or `n_iter` is
+        less than 1.
+    """
