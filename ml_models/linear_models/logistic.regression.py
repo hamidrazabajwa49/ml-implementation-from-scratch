@@ -283,3 +283,86 @@ class LogisticRegressionL2(LogisticRegression):
         If `lam` is negative, `lr` is not positive, or `n_iter` is
         less than 1.
     """
+
+    def __init__(
+        self,
+        lam: float = 1.0,
+        lr: float = 0.01,
+        n_iter: int = 1000,
+        fit_intercept: bool = True,
+    ) -> None:
+        super().__init__(lr=lr, n_iter=n_iter, fit_intercept=fit_intercept)
+        if lam < 0.0:
+            raise ValueError(f"lam must be non-negative, got {lam}")
+        self.lam = lam
+
+    def fit(
+        self, X: Matrix, y: Vector, optimizer: Optional[Optimizer] = None
+    ) -> "LogisticRegressionL2":
+        """Fit the L2-regularized model via iterative gradient-based optimization.
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix of shape (n_samples, n_features).
+        y : Vector
+            Binary target vector (0 or 1) of length n_samples.
+        optimizer : Optimizer, optional
+            An instance conforming to `Optimization.base.Optimizer`. If
+            omitted, a fresh `Adam` optimizer with learning rate
+            `self.lr` is constructed.
+
+        Returns
+        -------
+        LogisticRegressionL2
+            The fitted instance, for method chaining.
+
+        Raises
+        ------
+        TypeError
+            If `X`/`y` have the wrong type, or `optimizer` is provided
+            but is not an `Optimizer` instance.
+        ValueError
+            If `X`/`y` are empty or mismatched, or `y` contains a
+            non-binary label.
+        """
+        self._validate_Xy(X, y)
+        _validate_binary_targets(y)
+        if optimizer is not None and not isinstance(optimizer, Optimizer):
+            raise TypeError(
+                f"optimizer must be an Optimizer instance, got {type(optimizer).__name__}"
+            )
+
+        self.n_features_in_ = X.n_cols
+        design = self._add_bias_column(X) if self.fit_intercept else X
+        n_features = design.n_cols
+        self.w = Vector([0.0] * n_features)
+        penalty_start = 1 if self.fit_intercept else 0
+
+        if optimizer is None:
+            optimizer = Adam(lr=self.lr)
+
+        inv_n = 1.0 / design.n_rows
+        for iteration in range(self.n_iter):
+            y_pred = sigmoid(design * self.w)
+            error = y_pred - y
+            gradient_components = list((design.transpose() * error).components)
+            for j in range(n_features):
+                gradient_components[j] *= inv_n
+            for j in range(penalty_start, n_features):
+                gradient_components[j] += (self.lam * inv_n) * self.w[j]
+            gradient = Vector(gradient_components)
+
+            params = [self.w]
+            optimizer.step(params, [gradient])
+            self.w = params[0]
+
+            if iteration % 100 == 0 or iteration == self.n_iter - 1:
+                l2_penalty = (self.lam * inv_n / 2.0) * sum(
+                    self.w[j] ** 2 for j in range(penalty_start, n_features)
+                )
+                optimizer.record(binary_cross_entropy(list(y), list(y_pred)) + l2_penalty)
+
+        self._is_fitted = True
+        return self
+
