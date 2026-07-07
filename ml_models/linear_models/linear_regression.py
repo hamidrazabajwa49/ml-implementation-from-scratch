@@ -235,3 +235,174 @@ class LinearRegression(MLModel):
         """
         self._check_is_fitted()
         return [self.w]
+
+
+class GDLinearRegression(MLModel):
+    """Linear regression fit via iterative gradient-based optimization.
+
+    Minimizes the mean squared error
+
+    ``L(w) = (1 / n_samples) * ||y - Xw||^2``
+
+    using any optimizer conforming to the `Optimization.base.Optimizer`
+    interface, applied to the gradient
+
+    ``grad(L) = (2 / n_samples) * X^T (Xw - y)``
+
+    Defaults to `Adam`, which converges reliably across a wide range of
+    learning rates without manual tuning.
+
+    Parameters
+    ----------
+    fit_intercept : bool, optional
+        Whether to prepend a bias (intercept) column of ones to the
+        design matrix. Defaults to True.
+    """
+
+    def __init__(self, fit_intercept: bool = True) -> None:
+        super().__init__()
+        self.fit_intercept = fit_intercept
+        self.n_features_in_: Optional[int] = None
+
+    def fit(
+        self,
+        X: Matrix,
+        y: Vector,
+        optimizer: Optional[Optimizer] = None,
+        n_iter: int = 1000,
+        lr: float = 0.01,
+    ) -> "GDLinearRegression":
+        """Fit the model via iterative gradient-based optimization.
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix of shape (n_samples, n_features).
+        y : Vector
+            Target vector of length n_samples.
+        optimizer : Optimizer, optional
+            An instance conforming to `Optimization.base.Optimizer`
+            (e.g. `Adam`, `SGD`, `RMSProp`). If omitted, a fresh `Adam`
+            optimizer with learning rate `lr` is constructed. `lr` is
+            ignored if `optimizer` is provided.
+        n_iter : int, optional
+            Number of gradient-descent iterations; must be at least 1.
+        lr : float, optional
+            Learning rate used only when `optimizer` is None; must be
+            positive.
+
+        Returns
+        -------
+        GDLinearRegression
+            The fitted instance, for method chaining.
+
+        Raises
+        ------
+        TypeError
+            If `X`/`y` have the wrong type, or `optimizer` is provided
+            but is not an `Optimizer` instance.
+        ValueError
+            If `X`/`y` are empty or mismatched, `n_iter` is less than
+            1, or `lr` is not positive.
+        """
+        self._validate_Xy(X, y)
+        if n_iter < 1:
+            raise ValueError(f"n_iter must be >= 1, got {n_iter}")
+        if lr <= 0.0:
+            raise ValueError(f"lr must be positive, got {lr}")
+        if optimizer is not None and not isinstance(optimizer, Optimizer):
+            raise TypeError(
+                f"optimizer must be an Optimizer instance, got {type(optimizer).__name__}"
+            )
+
+        self.n_features_in_ = X.n_cols
+        design = self._add_bias_column(X) if self.fit_intercept else X
+        n_samples = design.n_rows
+        self.w: Vector = Vector([0.0] * design.n_cols)
+
+        if optimizer is None:
+            optimizer = Adam(lr=lr)
+
+        inv_n = 1.0 / n_samples
+        for iteration in range(n_iter):
+            residual = (design * self.w) - y
+            gradient = (2.0 * inv_n) * (design.transpose() * residual)
+            params = [self.w]
+            optimizer.step(params, [gradient])
+            self.w = params[0]
+            if iteration % 100 == 0 or iteration == n_iter - 1:
+                optimizer.record(inv_n * residual.dot(residual))
+
+        self._is_fitted = True
+        return self
+
+    def predict(self, X: Matrix) -> Vector:
+        """Predict target values for new samples.
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix of shape (n_samples, n_features_in_).
+
+        Returns
+        -------
+        Vector
+            Predicted values, one per row of `X`.
+
+        Raises
+        ------
+        NotFittedError
+            If called before `fit()`.
+        TypeError
+            If `X` is not a `Matrix`.
+        ValueError
+            If `X` is empty or its column count does not match the
+            number of features observed during `fit()`.
+        """
+        self._check_is_fitted()
+        self._validate_X(X, expected_n_features=self.n_features_in_)
+        design = self._add_bias_column(X) if self.fit_intercept else X
+        return design * self.w
+
+    def score(self, X: Matrix, y: Vector) -> float:
+        """Compute the coefficient of determination (R-squared) on (X, y).
+
+        Parameters
+        ----------
+        X : Matrix
+            Feature matrix.
+        y : Vector
+            True target values corresponding to the rows of `X`.
+
+        Returns
+        -------
+        float
+            The R-squared score; see `ml_models.metrics.r2_score`.
+
+        Raises
+        ------
+        NotFittedError
+            If called before `fit()`.
+        TypeError, ValueError
+            See `predict()` and `ml_models.metrics.r2_score`.
+        """
+        self._validate_Xy(X, y)
+        return r2_score(y, self.predict(X))
+
+    def parameters(self) -> List[Parameter]:
+        """Return the fitted parameter vector.
+
+        Returns
+        -------
+        list of Vector
+            A single-element list ``[w]``. If `fit_intercept` is True,
+            ``w[0]`` is the intercept and the remaining entries are the
+            per-feature coefficients, in the original column order.
+
+        Raises
+        ------
+        NotFittedError
+            If called before `fit()`.
+        """
+        self._check_is_fitted()
+        return [self.w]
